@@ -45,6 +45,19 @@ Open `http://localhost:8080` and sign in with the admin credentials generated in
 For production setup, TLS, backups, SMTP, object storage, and upgrades, see
 [Self-hosting](docs/SELF_HOSTING.md) and [Operations](docs/operations.md).
 
+## Documentation
+
+| Guide | GitHub source | Web |
+|---|---|---|
+| Self-hosting | [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md) | [orako.io/docs/self-hosting](https://orako.io/docs/self-hosting) |
+| Connect an agent | [docs/CONNECT_AGENTS.md](docs/CONNECT_AGENTS.md) | [orako.io/docs/connect-agents](https://orako.io/docs/connect-agents) |
+| Messaging integrations | [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) | [orako.io/docs/integrations](https://orako.io/docs/integrations) |
+| Operations | [docs/operations.md](docs/operations.md) | [orako.io/docs/operations](https://orako.io/docs/operations) |
+| Backup and restore | [docs/BACKUP_RESTORE.md](docs/BACKUP_RESTORE.md) | [orako.io/docs/backup-restore](https://orako.io/docs/backup-restore) |
+
+The Markdown files in `docs/` are canonical. The website publishes them during
+its build so the repository and web documentation stay aligned.
+
 ## Development
 
 Requirements: Go 1.25+, Node.js 20+, Docker, and

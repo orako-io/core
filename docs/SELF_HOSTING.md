@@ -4,6 +4,13 @@ Orako self-hosts as a single static Go binary + stock Postgres. The free
 **Community edition** runs with no license and caps usage at **5 members, 1 org,
 1 project**. Set a license key to raise the caps (see [Editions](#editions)).
 
+After installation:
+
+- [Connect an agent](CONNECT_AGENTS.md)
+- [Configure Slack or Discord](INTEGRATIONS.md)
+- [Operate the server](operations.md)
+- [Back up and restore](BACKUP_RESTORE.md)
+
 ## Quickstart (Docker Compose)
 
 ```bash
@@ -90,6 +97,8 @@ Stock `postgres:16` (what `docker-compose.yml` pins) has everything it needs.
   for production pin to a specific patch or digest so a `docker compose pull`
   never lands a surprise Postgres major.
 - **Back up the `orako_pgdata` volume.** It holds everything.
+- Follow [Backup and restore](BACKUP_RESTORE.md) for verified PostgreSQL,
+  attachment, and secret recovery.
 - **Email (invites/reset)** needs SMTP (`ORAKO_SMTP_*`); without it those emails
   silently do not send. Attachments need S3-compatible storage (`ORAKO_S3_*`);
   without it, text still flows and uploads return a clear error.

@@ -1,0 +1,32 @@
+[
+  {
+    "slug": "self-hosting",
+    "file": "SELF_HOSTING.md",
+    "title": "Self-hosting Orako",
+    "description": "Install Orako with Docker Compose, configure authentication, understand editions, and prepare a production deployment."
+  },
+  {
+    "slug": "connect-agents",
+    "file": "CONNECT_AGENTS.md",
+    "title": "Connect an agent",
+    "description": "Connect an MCP client or a headless agent to Orako and verify that the human-in-the-loop tools are available."
+  },
+  {
+    "slug": "integrations",
+    "file": "INTEGRATIONS.md",
+    "title": "Messaging integrations",
+    "description": "Connect Slack or Discord, bind teammates, test delivery, and understand the dashboard fallback."
+  },
+  {
+    "slug": "operations",
+    "file": "operations.md",
+    "title": "Operations runbook",
+    "description": "Configure production, monitor health, apply updates, and recover safely from migration failures."
+  },
+  {
+    "slug": "backup-restore",
+    "file": "BACKUP_RESTORE.md",
+    "title": "Backup and restore",
+    "description": "Back up PostgreSQL, attachment storage, and stable secrets, then restore a complete Orako instance."
+  }
+]
