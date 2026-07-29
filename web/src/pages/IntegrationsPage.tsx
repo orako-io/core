@@ -4,7 +4,7 @@
 // this page only lists state and links out to them.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { useIdentity } from '../lib/identity'
 import { useToast, toastMessage } from '../lib/toast'
 import { api, type ConnectedChannel } from '../lib/client'

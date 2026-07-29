@@ -2,7 +2,7 @@
 // composer and a right-hand details panel.
 
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router'
 import { api, type ConversationMessage, type ConversationSummary, type Participant, type Expert } from '../lib/client'
 import { useIdentity } from '../lib/identity'
 import { useRealtime } from '../lib/realtime'

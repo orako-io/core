@@ -10,7 +10,7 @@
 // an OAuth grant.
 
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 
 import { Page } from '../components/Layout'
 import { Button } from '../components/Button'

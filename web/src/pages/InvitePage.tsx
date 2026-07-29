@@ -2,7 +2,7 @@
 // context comes from query params (?org, ?from, ?role) and accepting routes to
 // account creation.
 
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router'
 import { LogoTile } from '../components/Icon'
 import { T } from '../lib/theme'
 

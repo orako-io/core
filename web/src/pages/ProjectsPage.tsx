@@ -3,7 +3,7 @@
 // alert routing), create/rename/archive/delete. Row click -> detail (/projects/:id).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { api, type ProjectDetail } from '../lib/client'
 import { cacheGet, cacheSet, cacheInvalidate } from '../lib/queryCache'
 import { useIdentity } from '../lib/identity'

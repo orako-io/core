@@ -12,7 +12,7 @@
 // channel value comes from this project's `routing` entry when present.
 
 import { useCallback, useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router'
 import { api, type ProjectDetail, type Expert } from '../lib/client'
 import { useIdentity } from '../lib/identity'
 import { useToast, toastMessage } from '../lib/toast'

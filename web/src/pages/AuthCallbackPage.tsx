@@ -13,7 +13,7 @@
 //     the same safeReturnTo() guard as the email/password and dev-token
 //     paths so this can never be driven off-site.
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate, useSearchParams, Link } from 'react-router-dom'
+import { useNavigate, useSearchParams, Link } from 'react-router'
 import { LogoTile } from '../components/Icon'
 import { T } from '../lib/theme'
 import { requireSupabase } from '../lib/supabase'

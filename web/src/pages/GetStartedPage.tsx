@@ -10,7 +10,7 @@
 // and an admin on the KPI Dashboard.
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { Navigate, useNavigate } from 'react-router'
 import { api, connectDiscord, setOnboardingDismissed, communityInvites, type CommunityInvites } from '../lib/client'
 import { useIdentity } from '../lib/identity'
 import { useBillingStatus } from '../lib/billing-status'

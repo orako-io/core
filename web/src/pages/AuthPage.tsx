@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router'
 import { fetchJoinOrg } from '../lib/client'
 import { saveToken, loadToken, parseToken } from '../lib/token'
 import { isOidc, isLocal } from '../lib/auth-mode'

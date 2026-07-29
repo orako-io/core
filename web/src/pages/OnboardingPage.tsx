@@ -6,7 +6,7 @@
 // later in Settings. Full-viewport, no <Layout> chrome, matching /welcome.
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { api, connectDiscord, communityInvites, type CommunityInvites, type Member } from '../lib/client'
 import { useIdentity } from '../lib/identity'
 import { markOnboardingRedirect } from '../lib/onboarding-redirect'

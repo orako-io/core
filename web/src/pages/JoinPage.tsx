@@ -11,7 +11,7 @@
 // the person never types it.
 
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router'
 import { redeemJoinCode, type JoinResult } from '../lib/client'
 import { useIdentity } from '../lib/identity'
 import { Button } from '../components/Button'

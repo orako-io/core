@@ -4,7 +4,7 @@
 // conversation detail. An empty query browses the most recent conversations.
 
 import { useState, useEffect, useMemo, useCallback, type ReactNode } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { api, type HistoryHit, type HistoryStatusCounts, type Expert } from '../lib/client'
 import { useIdentity } from '../lib/identity'
 import { useRealtime } from '../lib/realtime'

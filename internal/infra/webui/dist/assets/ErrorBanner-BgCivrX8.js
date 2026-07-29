@@ -1,0 +1,1 @@
+import{i as e,r as t}from"./Icon-3cBx3q4a.js";var n=t();function r({error:t}){let r=t instanceof Error?t.message:String(t);return(0,n.jsx)(`div`,{style:{background:e.dangerBg,border:`1px solid ${e.dangerBorder}`,borderRadius:e.rMd,padding:`11px 14px`,color:e.dangerInk,fontSize:13,lineHeight:1.5,marginBottom:16},children:r})}export{r as t};
