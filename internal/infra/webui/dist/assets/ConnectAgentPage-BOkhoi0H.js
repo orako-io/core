@@ -1,4 +1,4 @@
-import{R as e,V as t,i as n,r,t as i}from"./Icon-3cBx3q4a.js";import{d as a,g as o,h as s,r as c}from"./index-DXRHyEu_.js";import{t as l}from"./Select-LBJlNAMB.js";var u=t(e(),1),d=`# Orako — ask a human before you guess
+import{R as e,V as t,i as n,r,t as i}from"./Icon-3cBx3q4a.js";import{d as a,g as o,h as s,r as c}from"./index-6KqJEnBT.js";import{t as l}from"./Select-LBJlNAMB.js";var u=t(e(),1),d=`# Orako — ask a human before you guess
 
 > Drop-in \`AGENTS.md\` guidance for any agent that reads this convention (Codex,
 > Cursor, Aider, Jules, Hermes-based loops, …). Paste this section into your

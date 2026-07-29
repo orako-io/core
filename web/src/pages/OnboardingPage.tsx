@@ -566,6 +566,8 @@ function Step2Reach({
 
   const bindingMeta = BINDING_META[selected]
   const bindingField = BINDING_FIELD[selected]
+  const bindingIsValid =
+    !bindingField || validateDeliveryBinding(selected, bindings[bindingField]) === null
 
   return (
     <div>
@@ -659,7 +661,11 @@ function Step2Reach({
 
       <JoinServerCard invites={invites} discordConnected={!!connectedBindings.discordUserId} />
 
-      <StepFooter onContinue={() => void handleContinue()} continueLoading={saving} />
+      <StepFooter
+        onContinue={() => void handleContinue()}
+        continueLoading={saving}
+        continueDisabled={loading || !bindingIsValid}
+      />
     </div>
   )
 }
