@@ -1,0 +1,53 @@
+# Local AI tooling — never committed (local caches, personal config, vendored skills)
+.aidd/
+.claude/
+.agents/
+skills-lock.json
+
+# graphify knowledge graph — the workspace meta-repo owns the graph (it indexes
+# core's source already); a per-repo graphify-out here is redundant and huge
+# (AST cache). Run graphify at the workspace root, never from inside core.
+graphify-out/
+
+# Internal strategy/memory — kept OUT of the product repo for now (solo dev).
+# Revisit later: separate private repo/submodule vs curated ship-time export.
+aidd_docs/
+BRIEF.md
+
+# Local environment
+.env
+
+# Build output (root-anchored so cmd/relay and cmd/orako-server sources are not ignored)
+/bin/
+/relay
+/orako-server
+
+# Test / coverage artifacts
+*.out
+coverage.html
+
+# Web dashboard — node_modules excluded; dist/ committed (go:embed requires it)
+web/node_modules/
+
+# OS cruft
+.DS_Store
+
+# Daemon-written team state: an optional human-readable view of room state, not
+# the agent interface. Agents read room state through the relay API (and, later,
+# the MCP server), so this file is local-only and never committed.
+TEAM_STATE.md
+TEAM_STATE.md.*
+
+
+# Private managed-service overlay, supplied only by the private SaaS repository.
+/internal/saas/
+
+# Local MCP server config (may reference SaaS-only infra); keep local, never ship in community repo.
+.mcp.json
+
+# SaaS server wiring, spliced from the private overlay at -tags saas build (never committed to core).
+/cmd/orako-server/billing_saas.go
+
+# SaaS web overlay, spliced from the private overlay at SaaS build (never committed to core).
+/web/src/pages/BillingPage.tsx
+/web/src/lib/billing.ts

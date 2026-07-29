@@ -1,0 +1,1317 @@
+// SPDX-License-Identifier: Apache-2.0
+
+// OrakoService is the Connect-RPC surface of the Orako server. Post-pivot
+// (2026-07-01) it serves the agent (via the MCP server, a Connect client of
+// Orako), the web dashboard, and admin. Responder answers arrive from Slack on
+// a separate HTTP webhook (not modeled here).
+//
+// Caller identity comes from the auth token (RBAC interceptor), NOT from
+// request fields: requests carry only targets/parameters, never "who am I".
+syntax = "proto3";
+
+package orako.v1;
+
+import "orako/v1/events.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/orako-io/core/gen/orako/v1;orakov1";
+
+service OrakoService {
+  // --- Directory / routing: the agent matches this against its git history ---
+  rpc ListExperts(ListExpertsRequest) returns (ListExpertsResponse);
+
+  // --- Conversations (async: Ask returns an id; resume later) ---
+  rpc Ask(AskRequest) returns (AskResponse);
+  rpc GetConversation(GetConversationRequest) returns (GetConversationResponse);
+  rpc FollowUp(FollowUpRequest) returns (FollowUpResponse);
+  rpc ResolveConversation(ResolveConversationRequest) returns (ResolveConversationResponse);
+  // DismissConversation closes an unanswered conversation WITHOUT distilling a
+  // KB entry (the asker or a responder gave up on it). Project-member RBAC,
+  // not admin. Only an open or answered conversation can be dismissed.
+  rpc DismissConversation(DismissConversationRequest) returns (DismissConversationResponse);
+
+  // --- Listing (dashboard) ---
+  // ListProjects returns the projects the caller is a member of (any role).
+  // Caller identity comes from the auth token; no project_id needed.
+  rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse);
+  // ListConversations returns conversations in a project, newest first.
+  // RBAC: the caller's token project must match project_id.
+  rpc ListConversations(ListConversationsRequest) returns (ListConversationsResponse);
+  // ListInbox returns the caller's pending questions: open conversations where
+  // the caller is the responder, newest first. Caller identity comes from the
+  // token; no member_id field. Backs the dashboard-channel inbox screen.
+  rpc ListInbox(ListInboxRequest) returns (ListInboxResponse);
+  // SearchHistory runs the deterministic (embedding-free) history search over
+  // the caller's conversations and returns ranked hits plus a status breakdown
+  // for the KPI/facet pills. Backs the dashboard History tab. Scope mirrors
+  // ListConversations (org + optional project_ids, archived excluded). An empty
+  // query browses the most recent conversations in scope.
+  rpc SearchHistory(SearchHistoryRequest) returns (SearchHistoryResponse);
+  // GetDashboardMetrics returns the org KPI overview (conversations, response
+  // rate, median time-to-first-response, current backlog, leaderboards) for the
+  // caller's scope over a period. Backs the dashboard that replaces "Get
+  // started" once onboarding is complete. Scope mirrors ListConversations.
+  rpc GetDashboardMetrics(GetDashboardMetricsRequest) returns (GetDashboardMetricsResponse);
+
+  // --- Curated knowledge (decision 2026-07-26) ---
+  // ListKnowledgeEntries lists the org's curated knowledge entries (every
+  // status), newest first, for the dashboard Knowledge section. Org-scoped —
+  // any member may read the team's curated answers. Scope mirrors SearchHistory
+  // (org + optional project_ids); org-wide entries (no project) always included.
+  rpc ListKnowledgeEntries(ListKnowledgeEntriesRequest) returns (ListKnowledgeEntriesResponse);
+  // CreateKnowledgeEntry authors one curated entry (org-admin gated). Org +
+  // author come from the token, never the request. Searchable via SearchHistory
+  // alongside conversation history, attributed to the org.
+  rpc CreateKnowledgeEntry(CreateKnowledgeEntryRequest) returns (CreateKnowledgeEntryResponse);
+  // UpdateKnowledgeEntry rewrites an entry's editable fields (org-admin gated).
+  rpc UpdateKnowledgeEntry(UpdateKnowledgeEntryRequest) returns (UpdateKnowledgeEntryResponse);
+  // MarkKnowledgeStale flags an entry stale so it drops out of search (org-admin
+  // gated). Reversible via UpdateKnowledgeEntry with status="active".
+  rpc MarkKnowledgeStale(MarkKnowledgeStaleRequest) returns (MarkKnowledgeStaleResponse);
+  // RevalidateKnowledgeEntry re-confirms a stale entry as current: status back to
+  // active + updated_at bumped ("last reviewed"). Org-admin gated.
+  rpc RevalidateKnowledgeEntry(RevalidateKnowledgeEntryRequest) returns (RevalidateKnowledgeEntryResponse);
+
+  // --- Agent-suggested approval queue (Phase 2, trust gradient) ---
+  // ListPendingKnowledge lists the agent-suggested entries awaiting review
+  // (source=agent_suggested, status=pending), newest first, for the dashboard's
+  // "Pending review" queue. Org-admin gated. Scope mirrors ListKnowledgeEntries.
+  rpc ListPendingKnowledge(ListPendingKnowledgeRequest) returns (ListPendingKnowledgeResponse);
+  // ApproveKnowledgeEntry approves a pending agent-suggested entry → status
+  // active (now human-vetted, searchable). Provenance source stays
+  // agent_suggested. Org-admin gated.
+  rpc ApproveKnowledgeEntry(ApproveKnowledgeEntryRequest) returns (ApproveKnowledgeEntryResponse);
+  // DismissKnowledgeEntry rejects a pending agent-suggested entry by deleting the
+  // row (no 'dismissed' status is kept). Org-admin gated.
+  rpc DismissKnowledgeEntry(DismissKnowledgeEntryRequest) returns (DismissKnowledgeEntryResponse);
+  // PromoteConversationToKnowledge distills a RESOLVED conversation into a curated
+  // entry (source=curated, status=active) authored by the promoter, carrying the
+  // question, composed answer, and summary/tags/entities. Org-admin gated.
+  rpc PromoteConversationToKnowledge(PromoteConversationToKnowledgeRequest) returns (PromoteConversationToKnowledgeResponse);
+
+  // --- Member self-service (contact channel) ---
+  // GetMember returns the caller's own member record (channel + bindings).
+  rpc GetMember(GetMemberRequest) returns (GetMemberResponse);
+  // UpdateMember updates a member's contact settings (delivery channel,
+  // bindings, display name). Default target = the token caller; setting
+  // member_id targets another member and is org-admin gated.
+  rpc UpdateMember(UpdateMemberRequest) returns (UpdateMemberResponse);
+  // ListConnectedChannels returns the delivery channels available to the caller:
+  // always "dashboard", plus each functional external provider configured for
+  // the caller's project. Backs the contact-channel picker (greys out the rest).
+  rpc ListConnectedChannels(ListConnectedChannelsRequest) returns (ListConnectedChannelsResponse);
+  // SetOwnExpertise sets the CALLER's expertise tags (domains) across every
+  // project they belong to. Self-scoped and NOT admin-gated: any authenticated
+  // member may set their own expertise (onboarding uses it). The target is
+  // always the token caller — the request carries no member_id (identity comes
+  // from the auth token, never a request field). Contrast AssignRole, which is
+  // org-admin gated and targets another member on one project.
+  rpc SetOwnExpertise(SetOwnExpertiseRequest) returns (SetOwnExpertiseResponse);
+
+  // --- MCP connections (OAuth-issued, per grant_id) ---
+  // ListMcpConnections returns the caller's connected MCP clients: one entry
+  // per grant_id (an access+refresh pair and every pair produced by rotating
+  // it), never the tokens themselves.
+  rpc ListMcpConnections(ListMcpConnectionsRequest) returns (ListMcpConnectionsResponse);
+  // RevokeMcpConnection disconnects one of the caller's MCP clients
+  // immediately: every token sharing the grant is revoked in one call.
+  rpc RevokeMcpConnection(RevokeMcpConnectionRequest) returns (RevokeMcpConnectionResponse);
+
+  // --- Machine tokens (phase 1): non-interactive, admin-minted long-lived
+  // tokens for a headless agent — no browser, no consent screen. ---
+  // CreateMachineToken mints a durable access token scoped to project_ids
+  // (org-admin only). The raw secret is returned exactly once, here — it is
+  // never re-readable via ListMachineTokens.
+  rpc CreateMachineToken(CreateMachineTokenRequest) returns (CreateMachineTokenResponse);
+  // ListMachineTokens returns the caller's minted machine tokens: metadata
+  // only (org-admin only), never the secret or its hash.
+  rpc ListMachineTokens(ListMachineTokensRequest) returns (ListMachineTokensResponse);
+  // RevokeMachineToken immediately invalidates one of the caller's machine
+  // tokens (org-admin only).
+  rpc RevokeMachineToken(RevokeMachineTokenRequest) returns (RevokeMachineTokenResponse);
+
+  // --- Presence (connection heartbeat) ---
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+
+  // --- Admin (RBAC-gated to lead/admin) ---
+  // CreateOrganization creates an org with a global project and makes the caller
+  // the org admin. Gated to any authenticated account (AccountID present in token);
+  // no project RBAC required because the caller has no org/member yet.
+  rpc CreateOrganization(CreateOrganizationRequest) returns (CreateOrganizationResponse);
+  rpc CreateProject(CreateProjectRequest) returns (CreateProjectResponse);
+  // Project management (org-admin only). Rename; archive is a reversible freeze
+  // (data kept, routing stops); delete is a guarded hard delete;
+  // ListProjectsDetailed backs the Projects tab.
+  rpc RenameProject(RenameProjectRequest) returns (RenameProjectResponse);
+  rpc SetProjectArchived(SetProjectArchivedRequest) returns (SetProjectArchivedResponse);
+  rpc DeleteProject(DeleteProjectRequest) returns (DeleteProjectResponse);
+  // DeleteConversation hard-deletes a conversation and everything derived from
+  // it (messages, candidates, delivery ledger, and its distilled KB entry).
+  // Org-admin only, scoped to the caller's own org. Irreversible.
+  rpc DeleteConversation(DeleteConversationRequest) returns (DeleteConversationResponse);
+  rpc ListProjectsDetailed(ListProjectsDetailedRequest) returns (ListProjectsDetailedResponse);
+  rpc AddMember(AddMemberRequest) returns (AddMemberResponse);
+  // InviteMembers invites a list of emails to a project in one call (org-admin).
+  // Each email defaults to member role; per-email status is reported back.
+  rpc InviteMembers(InviteMembersRequest) returns (InviteMembersResponse);
+  rpc AssignRole(AssignRoleRequest) returns (AssignRoleResponse);
+  rpc RemoveMember(RemoveMemberRequest) returns (RemoveMemberResponse);
+  // ListMembers returns the org roster (org-admin only): one rich record per
+  // member with identity, channel + bindings, status, availability, org-admin
+  // flag and per-project expertise. Backs the Team list + Edit Person views.
+  rpc ListMembers(ListMembersRequest) returns (ListMembersResponse);
+  // GetOrgMember returns one member's full record by id (org-admin only).
+  rpc GetOrgMember(GetOrgMemberRequest) returns (GetOrgMemberResponse);
+  // SetMemberAvailability flips a member between active and on_leave (org-admin
+  // only). on_leave keeps the seat but stops routing; return_date is a display
+  // reminder. The agent must not route to an on_leave member.
+  rpc SetMemberAvailability(SetMemberAvailabilityRequest) returns (SetMemberAvailabilityResponse);
+  // SetMemberActivation deactivates or reactivates a member (org-admin only).
+  // Deactivation removes them from billing (seat recount, prorated) and stops
+  // routing; it is reversible.
+  rpc SetMemberActivation(SetMemberActivationRequest) returns (SetMemberActivationResponse);
+  // SetOrgAdmin grants or revokes org-admin on another member (org-admin only).
+  // Revoking the last remaining admin is refused.
+  rpc SetOrgAdmin(SetOrgAdminRequest) returns (SetOrgAdminResponse);
+  // SyncChatDirectory backfills Slack ids for a project's already-invited
+  // members by resolving each unbound member's email against the org's Slack
+  // workspace. Org-admin only, project-scoped. Best-effort; reports counts.
+  rpc SyncChatDirectory(SyncChatDirectoryRequest) returns (SyncChatDirectoryResponse);
+  // ConfigureProvider sets the messaging provider for a project.
+  // Admin-only: the caller must hold the lead or admin role.
+  // kind must be one of "slack", "teams", or "telegram".
+  // Credentials are provider-specific key/value pairs (never returned by any RPC).
+  rpc ConfigureProvider(ConfigureProviderRequest) returns (ConfigureProviderResponse);
+  // DisconnectProvider removes a project's messaging provider (credentials +
+  // alert channels). Admin-only. Idempotent: disconnecting an absent provider
+  // succeeds.
+  rpc DisconnectProvider(DisconnectProviderRequest) returns (DisconnectProviderResponse);
+  // SendProviderTest sends a real test message through a configured provider —
+  // a DM to the caller and a post to each configured alert channel — and
+  // returns a per-target result so an admin sees exactly what works and what
+  // fails (e.g. "the bot is not in that channel's server"). Org-admin only.
+  rpc SendProviderTest(SendProviderTestRequest) returns (SendProviderTestResponse);
+  // Organization escalation settings (org-admin gated). Zero disables a rule;
+  // an unset value falls back to the product default.
+  rpc GetOrganizationSettings(GetOrganizationSettingsRequest) returns (GetOrganizationSettingsResponse);
+  rpc UpdateOrganizationSettings(UpdateOrganizationSettingsRequest) returns (UpdateOrganizationSettingsResponse);
+  // RenameOrganization renames the caller's organization (org-admin gated). The
+  // org is resolved from the auth token, never a request field — the body
+  // carries only the new name.
+  rpc RenameOrganization(RenameOrganizationRequest) returns (RenameOrganizationResponse);
+  // DeleteOrganization hard-deletes the caller's organization and ALL its data
+  // (projects, conversations, messages, members, providers, join codes) in one
+  // atomic cascade. Org-admin gated; the org is resolved from the auth token,
+  // never a request field. confirm_name must match the org's current name (a
+  // typed-name guard against accidental deletion). Irreversible.
+  rpc DeleteOrganization(DeleteOrganizationRequest) returns (DeleteOrganizationResponse);
+  // GetOrganization returns the caller's organization identity (id + name) so
+  // the dashboard can show the real org name instead of a placeholder.
+  rpc GetOrganization(GetOrganizationRequest) returns (GetOrganizationResponse);
+  // ListOrganizations returns every organization the caller participates in
+  // (has at least one project in), so the dashboard can offer an org switcher.
+  // The caller selects an active org by sending its id in the Orako-Org-Id
+  // request header; the server honors it only for orgs the caller belongs to.
+  rpc ListOrganizations(ListOrganizationsRequest) returns (ListOrganizationsResponse);
+
+  // --- Org join code (shareable self-serve join, org-admin gated) ---
+  // GenerateJoinCode rotates the org's shareable join code: it revokes any prior
+  // live code and returns a fresh one scoped to a project (project_id, or the
+  // org's default project when empty). Someone who redeems the code at the MCP
+  // OAuth consent screen self-provisions as a pending member.
+  rpc GenerateJoinCode(GenerateJoinCodeRequest) returns (GenerateJoinCodeResponse);
+  // GetJoinCode returns the org's current live join code, or an inactive result
+  // (active=false, empty code) when none exists so the UI shows "no code yet".
+  rpc GetJoinCode(GetJoinCodeRequest) returns (GetJoinCodeResponse);
+  // RevokeJoinCode revokes the org's live join code. Idempotent.
+  rpc RevokeJoinCode(RevokeJoinCodeRequest) returns (RevokeJoinCodeResponse);
+}
+
+// ---- Directory ----
+
+message ListExpertsRequest {
+  // project_id is optional: empty resolves to the token's primary project.
+  string project_id = 1;
+}
+
+message Expert {
+  string member_id = 1;
+  string display_name = 2;
+  reserved 3;  // retired: repeated Role roles (Part 2 — every member is routable; expertise lives in domains)
+  reserved "roles";
+  repeated string domains = 4;  // expertise tags the agent routes on
+  bool online = 5;  // connection-presence hint, not a guarantee
+  string email = 6;
+  string status = 7;  // invited | active | suspended
+  google.protobuf.Timestamp invited_at = 8;
+}
+
+message ListExpertsResponse {
+  repeated Expert experts = 1;
+}
+
+// ---- Conversations ----
+
+message AskRequest {
+  // project_id is optional when the token scopes exactly one project (its
+  // primary is used). It is REQUIRED when the token scopes more than one:
+  // ask creates a conversation, so the target project must be
+  // explicit to avoid writing into the wrong one.
+  string project_id = 1;
+  string member_id = 2;  // target; asker = caller
+  string question = 3;
+  string context = 4;               // agent-composed packet
+  ContextRefs refs = 5;
+  bool wait = 6;                    // attempt the short synchronous window if online
+  // title is a short human title for lists (the agent writes it — the server
+  // is LLM-free). Empty: the server falls back to the truncated question.
+  string title = 7;
+  // domains dispatches to a POOL instead of one member: every active project
+  // member matching any domain becomes a candidate; all replies land on the
+  // thread, and the first answerer is recorded (attribution only). Exactly one
+  // of member_id / domains must be set.
+  repeated string domains = 8;
+}
+
+message AskResponse {
+  string conversation_id = 1;
+  string inline_answer = 2;  // set only if answered within the synchronous window
+  bool answered = 3;
+  // pool_size is how many candidates were notified (0 for a direct ask).
+  int32 pool_size = 4;
+  // project_name is the resolved name of the conversation's project, echoed so
+  // the agent can confirm where the question went ("sent in cfea") rather than
+  // repeat a UUID. Best-effort: empty if resolution failed.
+  string project_name = 5;
+  // recipient_names are the display name(s) the question reached: one entry
+  // for a direct ask, the pool candidates for a domains dispatch. Best-effort:
+  // an id that fails to resolve is simply omitted.
+  repeated string recipient_names = 6;
+}
+
+message ConversationMessage {
+  string message_id = 1;
+  string author_member_id = 2;
+  MessageRole role = 3;
+  string body = 4;
+  google.protobuf.Timestamp at = 5;
+  // source is how the message was authored: "human", "agent" (posted by a coding
+  // agent via the MCP tools on the member's behalf), or "system". Lets the UI
+  // mark an agent-posted message "Name (via agent)".
+  string source = 6;
+  // agent_client is which coding agent authored an agent message (e.g.
+  // "claude-code"); empty for human/system. Drives the "Name · Claude Code"
+  // label + logo.
+  string agent_client = 7;
+  // attachments are the files/images carried by this message; the dashboard
+  // renders image thumbnails and file chips, each linking to a signed URL.
+  repeated MessageAttachment attachments = 8;
+}
+
+// MessageAttachment is one file/image on a message, with a short-lived signed
+// URL the dashboard uses to display or download it.
+message MessageAttachment {
+  string id = 1;
+  string filename = 2;
+  string mime_type = 3;
+  int64 size_bytes = 4;
+  string download_url = 5;  // signed, short TTL
+}
+
+message GetConversationRequest {
+  string conversation_id = 1;
+}
+
+message GetConversationResponse {
+  string conversation_id = 1;
+  string status = 2;  // open | answered | resolved | timed_out
+  repeated ConversationMessage messages = 3;
+  string title = 4;
+  // participants = asker, then assigned responder (when any), then explicitly
+  // added members — deduplicated, with display names resolved.
+  repeated Participant participants = 5;
+}
+
+message FollowUpRequest {
+  string conversation_id = 1;
+  string body = 2;  // author = caller
+}
+
+message FollowUpResponse {}
+
+message ResolveConversationRequest {
+  string conversation_id = 1;
+  string resolution = 2;  // agent-distilled; Orako does not summarize
+  // contested is the agent's divergence verdict when distilling: true = a
+  // second opinion genuinely diverged, false = it agreed / was resolved.
+  // Meaningful only when contested_set = true; if contested_set = false the
+  // agent did not judge and the server defaults contested from the presence of
+  // unresolved second_opinion messages on the thread.
+  bool contested = 3;
+  bool contested_set = 4;
+}
+
+message ResolveConversationResponse {}
+
+message DismissConversationRequest {
+  string conversation_id = 1;
+}
+
+message DismissConversationResponse {
+  string status = 1;  // the resulting status, always "dismissed" on success
+}
+
+message DeleteConversationRequest {
+  string conversation_id = 1;
+}
+
+message DeleteConversationResponse {}
+
+// ---- Presence ----
+
+message HeartbeatRequest {}  // member = caller
+
+message HeartbeatResponse {}
+
+// ---- Admin ----
+
+// CreateOrganizationRequest creates a new organization. The caller's identity
+// (AccountID) comes from the auth token; identity is never a request field.
+message CreateOrganizationRequest {
+  // name is the human-readable label for the organization.
+  string name = 1;
+}
+
+message CreateOrganizationResponse {
+  string organization_id = 1;
+  string global_project_id = 2;
+}
+
+message CreateProjectRequest {
+  string name = 1;  // creator = caller
+}
+
+message CreateProjectResponse {
+  string project_id = 1;
+}
+
+message RenameProjectRequest {
+  string project_id = 1;
+  string name = 2;
+}
+
+message RenameProjectResponse {}
+
+message SetProjectArchivedRequest {
+  string project_id = 1;
+  bool archived = 2;  // true = freeze (reversible); false = reactivate
+}
+
+message SetProjectArchivedResponse {}
+
+message DeleteProjectRequest {
+  string project_id = 1;
+}
+
+message DeleteProjectResponse {}
+
+message ListProjectsDetailedRequest {
+  bool include_archived = 1;
+}
+
+// ProviderAlertRouting is one provider's per-project alert channels.
+message ProviderAlertRouting {
+  string kind = 1;
+  repeated string alert_channel_ids = 2;
+}
+
+// ProjectDetail backs the Projects tab: identity + per-project stats + routing.
+message ProjectDetail {
+  string project_id = 1;
+  string name = 2;
+  bool archived = 3;
+  int32 member_count = 4;
+  int32 conversation_count = 5;
+  int32 resolved_count = 6;
+  repeated ProviderAlertRouting routing = 7;
+}
+
+message ListProjectsDetailedResponse {
+  repeated ProjectDetail projects = 1;
+}
+
+message AddMemberRequest {
+  string project_id = 1;
+  string email = 2;             // match key against the connector directory
+  reserved 3;                   // retired: Role role (Part 2 — project role dropped in Part 1)
+  reserved "role";
+  string slack_user_id = 4;     // binding, seeded from the directory
+  string telegram_chat_id = 5;  // binding set by admin; value obtained when responder first messages the bot
+  repeated string domains = 6;  // expertise tags applied to the new membership
+  // resend explicitly re-sends the invitation email to a still-pending member
+  // (the dashboard's "Resend" button). Without it, re-adding an existing member
+  // — e.g. the invite modal looping over several projects — is silent: exactly
+  // ONE invitation email per new member, never one per project.
+  bool resend = 7;
+}
+
+message AddMemberResponse {
+  string member_id = 1;
+}
+
+message InviteMembersRequest {
+  string project_id = 1;
+  repeated string emails = 2;
+  repeated string domains = 3;  // optional expertise tags applied to all
+}
+
+message InviteOutcome {
+  string email = 1;
+  string status = 2;  // invited | already | invalid | error
+}
+
+message InviteMembersResponse {
+  repeated InviteOutcome results = 1;
+}
+
+// AssignRoleRequest sets a member's expertise tags on a project. Post-Part-2 it
+// no longer carries a permission role (that concept is retired); it replaces the
+// member's domains wholesale. The RPC name is retained for wire stability.
+message AssignRoleRequest {
+  string project_id = 1;
+  string member_id = 2;  // target
+  reserved 3;            // retired: Role role (Part 2 — repurposed to expertise tags)
+  reserved "role";
+  repeated string domains = 4;  // expertise tags; replaces the member's domains
+}
+
+message AssignRoleResponse {}
+
+message RemoveMemberRequest {
+  string project_id = 1;
+  string member_id = 2;  // target
+  bool purge_pii = 3;    // false = archive (default); true = hard-delete PII
+}
+
+message RemoveMemberResponse {}
+
+// ---- Org roster & member administration ----
+
+// ProjectExpertise is a member's expertise tags within one project.
+message ProjectExpertise {
+  string project_id = 1;
+  repeated string domains = 2;  // expertise tags routed on for this project
+}
+
+// OrgMember is the rich, admin-facing view of one member: everything the Team
+// list and Edit Person page need. Distinct from Member (the caller's self view).
+message OrgMember {
+  string member_id = 1;
+  string email = 2;             // empty for an external-only responder
+  string first_name = 3;
+  string last_name = 4;
+  string display_name = 5;
+  string git_handle = 6;
+  string delivery_channel = 7;  // slack | teams | telegram | discord | dashboard
+  string slack_user_id = 8;
+  string teams_user_id = 9;
+  string telegram_chat_id = 10;
+  string discord_user_id = 11;
+  string binding_error = 12;    // last delivery failure on the bound channel (empty = healthy)
+  string status = 13;           // invited | active | on_leave | deactivated | suspended | removed
+  string return_date = 14;      // ISO date, set only when on_leave; a display reminder
+  bool is_org_admin = 15;       // org_members.role='admin'
+  bool external = 16;           // no linked login account
+  repeated ProjectExpertise projects = 17;
+}
+
+message ListMembersRequest {}
+
+message ListMembersResponse {
+  repeated OrgMember members = 1;
+}
+
+message GetOrgMemberRequest {
+  string member_id = 1;
+}
+
+message GetOrgMemberResponse {
+  OrgMember member = 1;
+}
+
+message SetMemberAvailabilityRequest {
+  string member_id = 1;
+  string status = 2;       // "active" or "on_leave"
+  string return_date = 3;  // ISO date; honored only for on_leave, else ignored
+}
+
+message SetMemberAvailabilityResponse {}
+
+message SetMemberActivationRequest {
+  string member_id = 1;
+  bool active = 2;  // false = deactivate (off billing), true = reactivate
+}
+
+message SetMemberActivationResponse {}
+
+message SetOrgAdminRequest {
+  string member_id = 1;
+  bool is_admin = 2;
+}
+
+message SetOrgAdminResponse {}
+
+// ---- Provider configuration ----
+
+message ConfigureProviderRequest {
+  string project_id = 1;
+  // kind is the provider type: "slack", "teams", "telegram", or "discord".
+  string kind = 2;
+  // credentials are provider-specific key/value pairs.
+  // slack:    bot_token, signing_secret
+  // telegram: bot_token
+  // teams:    tenant_id, client_id, client_secret, bot_app_id
+  // discord:  bot_token
+  // Credentials are persisted encrypted at rest; they are never returned by any RPC.
+  // On an already-configured provider, an EMPTY credentials map means "leave the
+  // stored credentials unchanged and only update alert_channel_ids" — this lets
+  // the dashboard edit a provider's alert channels without re-entering secrets
+  // it never receives back. Empty on a first-time configure is rejected.
+  map<string, string> credentials = 3;
+  reserved 4;                 // retired: string alert_channel_id (now a list)
+  reserved "alert_channel_id";
+  // alert_channel_ids are the provider-native channels for escalation alerts on
+  // this project (e.g. Slack channel IDs) — the sweep posts to each. Empty =
+  // fall back to the organization's default_alert_channel_id; both empty = no
+  // channel alerts.
+  repeated string alert_channel_ids = 5;
+}
+
+message ConfigureProviderResponse {}
+
+message SyncChatDirectoryRequest {
+  string project_id = 1;  // scope; the caller must be an org admin over it
+}
+
+message SyncChatDirectoryResponse {
+  int32 scanned = 1;  // members that had no Slack binding
+  int32 bound = 2;    // of those, how many were resolved and bound
+}
+
+message DisconnectProviderRequest {
+  string project_id = 1;
+  // kind is the provider type to remove: "slack", "teams", "telegram", or "discord".
+  string kind = 2;
+}
+
+message DisconnectProviderResponse {}
+
+message SendProviderTestRequest {
+  // kind is the provider to test: "slack" | "teams" | "telegram" | "discord".
+  string kind = 1;
+}
+
+// ProviderTestResult is one target's real delivery outcome.
+message ProviderTestResult {
+  string label = 1;  // e.g. "Direct message to you" or "Alert channel 12345"
+  bool ok = 2;
+  string error = 3;  // provider error when ok=false (empty otherwise)
+}
+
+message SendProviderTestResponse {
+  repeated ProviderTestResult results = 1;
+}
+
+// ---- Listing ----
+
+// ListProjectsRequest carries no fields: the caller is identified by the token.
+message ListProjectsRequest {
+  // all_orgs returns every project the caller is a member of across ALL their
+  // organizations (each carrying org_id), not just the active one. Used by the
+  // agent-connection consent screens to let a member scope a token cross-org.
+  bool all_orgs = 1;
+}
+
+// ProjectSummary is a single project the caller is a member of.
+message ProjectSummary {
+  string id = 1;
+  string name = 2;
+  Role role = 3;  // the caller's role in this project
+  string org_id = 4;  // the owning organization (for grouping in cross-org lists)
+}
+
+message ListProjectsResponse {
+  repeated ProjectSummary projects = 1;
+}
+
+// ListOrganizationsRequest carries no fields: the caller is identified by the
+// token.
+message ListOrganizationsRequest {}
+
+// OrganizationSummary is a single organization the caller participates in.
+message OrganizationSummary {
+  string id = 1;
+  string name = 2;
+  // is_current is true for the caller's active organization on this request.
+  bool is_current = 3;
+}
+
+message ListOrganizationsResponse {
+  repeated OrganizationSummary organizations = 1;
+}
+
+// ---- Org join code ----
+
+// GenerateJoinCodeRequest rotates the org's join code. The org is the caller's,
+// resolved from the auth token (never a request field).
+message GenerateJoinCodeRequest {
+  // project_id is optional: empty resolves to the org's default project. When
+  // set it must belong to the caller's organization (rejected otherwise).
+  string project_id = 1;
+}
+
+message GenerateJoinCodeResponse {
+  // code is the freshly minted, shareable join code (the prior live code, if
+  // any, is now revoked).
+  string code = 1;
+  string project_id = 2;
+  string project_name = 3;
+}
+
+// GetJoinCodeRequest carries no fields: the org is the caller's.
+message GetJoinCodeRequest {}
+
+message GetJoinCodeResponse {
+  // code is the org's current live join code; empty when active is false.
+  string code = 1;
+  string project_id = 2;
+  string project_name = 3;
+  // active is false when the org has no live join code (UI shows "no code yet").
+  bool active = 4;
+}
+
+// RevokeJoinCodeRequest carries no fields: the org is the caller's.
+message RevokeJoinCodeRequest {}
+
+message RevokeJoinCodeResponse {}
+
+// ListConversationsRequest lists conversations in project_id.
+// RBAC: the caller's token project_id must match.
+message ListConversationsRequest {
+  // project_id is optional: empty resolves to the token's primary project.
+  string project_id = 1;
+  // project_ids scopes to a chosen set of the caller's org projects; empty = all
+  // non-archived projects the caller may see. Takes precedence over project_id.
+  repeated string project_ids = 3;
+  // status is an optional filter: "open", "answered", "resolved", "timed_out".
+  // Empty string means all statuses.
+  string status = 2;
+}
+
+// Participant is one person on a conversation, resolved with their display
+// name so lists and details can render avatars/names without extra lookups.
+message Participant {
+  string member_id = 1;
+  string display_name = 2;
+  // role situates the participant: "asker", "responder", or "added".
+  string role = 3;
+}
+
+// ConversationSummary is one row in a conversations list.
+message ConversationSummary {
+  string id = 1;
+  string status = 2;
+  string question = 3;
+  string responder_member_id = 4;
+  google.protobuf.Timestamp created_at = 5;
+  string title = 6;
+  string project_id = 7;    // which project this conversation belongs to (for the row chip)
+  string project_name = 8;  // resolved name of that project
+  // participants = asker, then the responder (when any), then explicitly
+  // added members — deduplicated.
+  repeated Participant participants = 9;
+}
+
+message ListConversationsResponse {
+  repeated ConversationSummary conversations = 1;
+}
+
+// ---- Inbox (per-member pending questions) ----
+
+// ListInboxRequest carries no fields: the member is the token caller.
+message ListInboxRequest {}
+
+// InboxItem is one pending question addressed to the caller.
+message InboxItem {
+  string conversation_id = 1;
+  string project_id = 2;
+  string question = 3;
+  string asker_member_id = 4;
+  string status = 5;  // open
+  google.protobuf.Timestamp created_at = 6;
+  string title = 7;
+  // claimable (8) died with the claim model (hub-and-spoke phase 2): a
+  // conversation is a discussion — anyone on it replies, nobody "takes" it.
+  reserved 8;
+  reserved "claimable";
+}
+
+message ListInboxResponse {
+  repeated InboxItem items = 1;
+}
+
+// ---- History search (dashboard History tab) ----
+
+// SearchHistoryRequest is the free-text + facet query behind the History tab.
+message SearchHistoryRequest {
+  // query is the free-text search string (FTS + trgm fuzzy). Empty browses the
+  // most recent conversations in scope instead of matching.
+  string query = 1;
+  // project_ids scopes the search to a chosen set of the caller's org projects;
+  // empty = every non-archived project the caller may see (org-wide).
+  repeated string project_ids = 2;
+  // status filters the returned hits to one conversation status ("open",
+  // "answered", "resolved", "timed_out", "dismissed"). Empty or "all" = no
+  // status filter. It does NOT affect the counts, which always cover the scope.
+  string status = 3;
+  // tags are explicit facet terms overlapped against each conversation's
+  // tags/entities, so a hit surfaces on a named tag even without a lexical match.
+  repeated string tags = 4;
+  // top_k caps the number of hits (server default when 0).
+  int32 top_k = 5;
+}
+
+// HistoryHit is one conversation matched by the history search. Mirrors the
+// read-side query.HistoryHit; carries what the dashboard needs to render a card
+// and navigate to the conversation without a second fetch.
+message HistoryHit {
+  string conversation_id = 1;
+  string project_id = 2;
+  string project_name = 3;
+  string title = 4;
+  // summary is the agent-curated one-line gist (also shown as the resolved
+  // answer snippet — there is no separate answer field).
+  string summary = 5;
+  string status = 6;  // open | answered | resolved | timed_out | dismissed
+  repeated string tags = 7;
+  repeated string entities = 8;
+  // asker_member_id is who opened the conversation — the lead to nudge when the
+  // hit is a timed-out/dismissed (unanswered) question.
+  string asker_member_id = 9;
+  google.protobuf.Timestamp created_at = 10;
+  // age_days is created_at's age in whole days at query time.
+  int32 age_days = 11;
+  // score is the deterministic relevance score (higher = more relevant).
+  double score = 12;
+  // source is the hit's provenance: "conversation" (organic history — a real
+  // person answered) or "curated" (a team-authored knowledge entry, attributed
+  // to the org). A UI trust/attribution label only; empty = "conversation".
+  string source = 13;
+}
+
+// HistoryStatusCounts is the per-status conversation breakdown for the KPI and
+// facet pills, over the request's scope (never narrowed by the status filter).
+// timed_out is the "expired" bucket; "leads without an answer" = timed_out +
+// dismissed.
+message HistoryStatusCounts {
+  int32 all = 1;
+  int32 resolved = 2;
+  int32 answered = 3;
+  int32 open = 4;
+  int32 timed_out = 5;
+  int32 dismissed = 6;
+}
+
+message SearchHistoryResponse {
+  repeated HistoryHit hits = 1;
+  // total is the number of conversations in scope (counts.all), so the UI can
+  // show "showing N of total".
+  int32 total = 2;
+  HistoryStatusCounts counts = 3;
+}
+
+// ---- Curated knowledge (dashboard Knowledge section) ----
+
+// KnowledgeEntry is one curated knowledge entry — the full CRUD read shape
+// (unlike a HistoryHit, which carries only the searchable snippet). Mirrors the
+// read-side query.KnowledgeEntryView.
+message KnowledgeEntry {
+  string id = 1;
+  // project_id is empty for an org-wide entry.
+  string project_id = 2;
+  // project_name is the resolved name of project_id; empty for org-wide.
+  string project_name = 3;
+  string question = 4;
+  string answer = 5;
+  string summary = 6;
+  repeated string tags = 7;
+  repeated string entities = 8;
+  // author_member_id is who curated it; empty when unattributed.
+  string author_member_id = 9;
+  string source = 10;  // curated | agent_suggested
+  string status = 11;  // active | stale | pending
+  google.protobuf.Timestamp created_at = 12;
+  google.protobuf.Timestamp updated_at = 13;
+}
+
+message ListKnowledgeEntriesRequest {
+  // project_ids scopes the list to a chosen subset of the org's projects; empty
+  // = every project the caller may see (org-wide read). Org-wide entries (no
+  // project) are always included.
+  repeated string project_ids = 1;
+}
+
+message ListKnowledgeEntriesResponse {
+  repeated KnowledgeEntry entries = 1;
+}
+
+message CreateKnowledgeEntryRequest {
+  // project_id is optional; empty = org-wide (visible in every project of the
+  // org). The org and author come from the auth token, never this request.
+  string project_id = 1;
+  string question = 2;
+  string answer = 3;
+  string summary = 4;
+  repeated string tags = 5;
+  repeated string entities = 6;
+}
+
+message CreateKnowledgeEntryResponse {
+  string entry_id = 1;
+}
+
+message UpdateKnowledgeEntryRequest {
+  string entry_id = 1;
+  string question = 2;
+  string answer = 3;
+  string summary = 4;
+  repeated string tags = 5;
+  repeated string entities = 6;
+  // status optionally transitions the entry ("active" | "stale" | "pending");
+  // empty leaves it unchanged.
+  string status = 7;
+}
+
+message UpdateKnowledgeEntryResponse {}
+
+message MarkKnowledgeStaleRequest {
+  string entry_id = 1;
+}
+
+message MarkKnowledgeStaleResponse {}
+
+message RevalidateKnowledgeEntryRequest {
+  string entry_id = 1;
+}
+
+message RevalidateKnowledgeEntryResponse {}
+
+// ListPendingKnowledgeRequest scopes the pending-review queue to a chosen subset
+// of the org's projects; empty = org-wide (org-wide entries always included).
+message ListPendingKnowledgeRequest {
+  repeated string project_ids = 1;
+}
+
+message ListPendingKnowledgeResponse {
+  repeated KnowledgeEntry entries = 1;
+}
+
+message ApproveKnowledgeEntryRequest {
+  string entry_id = 1;
+}
+
+message ApproveKnowledgeEntryResponse {}
+
+message DismissKnowledgeEntryRequest {
+  string entry_id = 1;
+}
+
+message DismissKnowledgeEntryResponse {}
+
+message PromoteConversationToKnowledgeRequest {
+  string conversation_id = 1;
+}
+
+message PromoteConversationToKnowledgeResponse {
+  // entry_id is the newly created curated knowledge entry.
+  string entry_id = 1;
+}
+
+// ---- Dashboard metrics (org KPI overview) ----
+
+// GetDashboardMetricsRequest is the org KPI overview query behind the dashboard
+// that replaces "Get started" once onboarding is complete.
+message GetDashboardMetricsRequest {
+  // period is the metric window: "7d" | "30d" | "all". Empty or unknown = "30d".
+  // It scopes the period-sensitive KPIs (conversations, response rate, median
+  // first response, top responders, top topics). The current-state counts (open,
+  // leads) and lists (to_handle, recently_resolved) are always over the whole
+  // scope regardless of period.
+  string period = 1;
+  // project_ids scopes the metrics to a chosen set of the caller's org projects;
+  // empty = every non-archived project the caller may see (org-wide).
+  repeated string project_ids = 2;
+}
+
+// MetricCard is one headline KPI: a value, its signed change vs the previous
+// equal-length period, and a per-day series for the sparkline. The unit of
+// value/delta_pct depends on the card (count & percent for conversations;
+// percent & points for response rate; seconds & seconds for median). series is
+// empty when a daily series is disproportionately costly (median) — the UI then
+// hides that card's sparkline.
+message MetricCard {
+  int64 value = 1;
+  double delta_pct = 2;
+  repeated double series = 3;
+}
+
+// ReuseCard is the "reused from history" deflection KPI. BETA: available is
+// false and pct/delta_pts are 0 until the reuse signal is instrumented (logging
+// a search_history hit that served an answer instead of a new ask). The UI
+// renders it as a BETA placeholder while available is false.
+message ReuseCard {
+  bool available = 1;
+  double pct = 2;
+  double delta_pts = 3;
+}
+
+// ConversationRef is one row in the "to handle" list: open + expired
+// conversations, most-urgent first. member ids are resolved to names client-side.
+message ConversationRef {
+  string conversation_id = 1;
+  string project_id = 2;
+  string title = 3;
+  string status = 4;  // open | timed_out
+  string asker_member_id = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+// HistoryRef is one row in the "recently added to history" list: the latest
+// resolved conversations. resolver_member_id is the assigned responder (empty
+// when none); resolved-at is the conversation's last update.
+message HistoryRef {
+  string conversation_id = 1;
+  string title = 2;
+  repeated string tags = 3;
+  string resolver_member_id = 4;
+  google.protobuf.Timestamp resolved_at = 5;
+}
+
+// Responder is one row in the top-responders leaderboard over the period.
+message Responder {
+  string member_id = 1;
+  string display_name = 2;
+  int64 answer_count = 3;
+}
+
+// TopicCount is one row in the top-topics leaderboard (conversation tag
+// frequency over the period).
+message TopicCount {
+  string label = 1;
+  int64 count = 2;
+}
+
+message GetDashboardMetricsResponse {
+  // conversations: count in the period, delta_pct vs the previous period, daily
+  // series for the sparkline.
+  MetricCard conversations = 1;
+  // response_rate: value is a percent 0-100 (answered+resolved / total),
+  // delta_pct is the change in points, series is the daily rate.
+  MetricCard response_rate = 2;
+  // median_first_response_seconds: value is median seconds (question ts → first
+  // answer message ts), delta_pct is the change in seconds (negative = faster),
+  // series is empty (a daily median is disproportionately costly).
+  MetricCard median_first_response_seconds = 3;
+  // reuse: BETA card, available is false until instrumented.
+  ReuseCard reuse = 4;
+  // open_count is the number of open conversations (status=open) in scope.
+  int64 open_count = 5;
+  // leads_count is timed_out + dismissed-without-an-answer conversations in scope.
+  int64 leads_count = 6;
+  // to_handle is the open + expired backlog, most-urgent first (capped ~8).
+  repeated ConversationRef to_handle = 7;
+  // recently_resolved is the latest resolved conversations (capped ~5).
+  repeated HistoryRef recently_resolved = 8;
+  // top_responders is answer count per member over the period (capped ~5).
+  repeated Responder top_responders = 9;
+  // top_topics is conversation tag frequency over the period (capped ~5).
+  repeated TopicCount top_topics = 10;
+}
+
+// ---- Member self-service (contact channel) ----
+
+// Member is the caller-facing view of a member's own contact settings.
+// Credentials are never included; bindings (slack_user_id, telegram_chat_id)
+// are identifiers, not secrets.
+message Member {
+  string member_id = 1;
+  string email = 2;
+  string display_name = 3;
+  string delivery_channel = 4;  // slack | teams | telegram | discord | dashboard
+  string slack_user_id = 5;
+  string telegram_chat_id = 6;
+  string status = 7;
+  string first_name = 8;
+  string last_name = 9;
+  // git_handle is the member's VCS username (e.g. GitHub login), used to match
+  // commit authorship to the right responder.
+  string git_handle = 10;
+  // teams_user_id is the member's Azure AD object id (Bot Framework
+  // from.aadObjectId), the Teams DM binding.
+  string teams_user_id = 11;
+  // discord_user_id is the member's Discord user snowflake, the Discord DM binding.
+  string discord_user_id = 12;
+  // binding_error is the last delivery failure on the member's bound channel
+  // (empty = healthy). Cleared when the binding is re-saved.
+  string binding_error = 13;
+}
+
+// GetMemberRequest carries no fields: the target is the token caller.
+message GetMemberRequest {}
+
+message GetMemberResponse {
+  Member member = 1;
+  // is_org_admin is true when the caller is an admin of their organization
+  // (org_members.role='admin'). The dashboard uses it to reveal admin surfaces.
+  // Resolved from the caller identity (org-scoped RBAC), never from the token.
+  bool is_org_admin = 2;
+}
+
+// UpdateMemberRequest updates a member's settings. Empty delivery_channel
+// leaves the channel unchanged; a non-empty value must be a valid channel and,
+// for an external channel, the matching binding must be present.
+message UpdateMemberRequest {
+  string display_name = 1;
+  string delivery_channel = 2;
+  string slack_user_id = 3;
+  string telegram_chat_id = 4;
+  // Profile fields; empty string leaves the value unchanged.
+  string email = 5;
+  string first_name = 6;
+  string last_name = 7;
+  string git_handle = 8;
+  string teams_user_id = 9;
+  string discord_user_id = 10;
+  // member_id targets another member (org-admin only; the admin fills a
+  // member's bindings from their card). Empty = the token caller (self).
+  string member_id = 11;
+}
+
+message UpdateMemberResponse {
+  Member member = 1;
+}
+
+// SetOwnExpertiseRequest sets the caller's expertise tags. It carries only the
+// domains — the member is the token caller, never a request field (identity
+// invariant). The tags replace the caller's domains on every project they are a
+// member of.
+message SetOwnExpertiseRequest {
+  repeated string domains = 1;
+}
+
+message SetOwnExpertiseResponse {}
+
+// ListConnectedChannelsRequest carries no fields: the project is the caller's
+// primary project from the token.
+message ListConnectedChannelsRequest {}
+
+message ListConnectedChannelsResponse {
+  // channels is the set of delivery channels the caller may select, e.g.
+  // ["dashboard", "slack"]. "dashboard" is always present.
+  repeated string channels = 1;
+  // connected carries the configured external providers with their stored
+  // alert channel, so the dashboard can display and safely re-edit it without
+  // blanking it. "dashboard" is not included here (it has no config).
+  repeated ConnectedChannel connected = 2;
+}
+
+// ConnectedChannel is one configured external provider and its alert channels.
+message ConnectedChannel {
+  string kind = 1;  // "slack" | "teams" | "telegram" | "discord"
+  reserved 2;       // retired: string alert_channel_id (now a list)
+  reserved "alert_channel_id";
+  repeated string alert_channel_ids = 3;  // provider-native escalation channels; empty if unset
+  // bot_client_id is the provider bot's PUBLIC application id (Discord only
+  // today), decoded server-side from the stored token — never the token
+  // itself. Lets the manage page rebuild the bot invite/permissions URL
+  // without re-entering credentials (e.g. after Orako's required permissions
+  // grew). Empty when unknown.
+  string bot_client_id = 4;
+}
+
+// ---- MCP connections ----
+
+// McpConnection is the dashboard-facing view of one connected MCP client
+// (one grant_id): never the access/refresh secrets, only what a human needs
+// to recognize and revoke it.
+message McpConnection {
+  string grant_id = 1;
+  // client_name is the DCR-registered client's display name; may be empty
+  // for a client that registered without one.
+  string client_name = 2;
+  // resource is the RFC 8707 audience this connection is scoped to.
+  string resource = 3;
+  // project_ids is the connection's project scope (ordered, first =
+  // primary). Empty means it reaches all the caller's projects.
+  repeated string project_ids = 4;
+  google.protobuf.Timestamp connected_at = 5;
+  // last_used_at is unset until the connection authenticates its first call.
+  google.protobuf.Timestamp last_used_at = 6;
+  // expires_at is the refresh token's expiry — when the connection stops
+  // working without the human re-approving it.
+  google.protobuf.Timestamp expires_at = 7;
+}
+
+message ListMcpConnectionsRequest {}
+
+message ListMcpConnectionsResponse {
+  // connections are the caller's live connected MCP clients, newest first.
+  repeated McpConnection connections = 1;
+}
+
+message RevokeMcpConnectionRequest {
+  string grant_id = 1;
+}
+
+message RevokeMcpConnectionResponse {}
+
+// ---- Machine tokens (phase 1) ----
+
+// MachineToken is the dashboard-facing metadata view of one minted machine
+// token: never the secret or its hash, and never re-readable after
+// CreateMachineTokenResponse's one-time secret.
+message MachineToken {
+  string id = 1;
+  string label = 2;
+  // project_ids is the token's project scope (ordered, first = primary).
+  // Empty means it reaches every project the owning member can.
+  repeated string project_ids = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp expires_at = 5;
+  // last_used_at is unset until the token authenticates its first call.
+  google.protobuf.Timestamp last_used_at = 6;
+  // revoked_at is unset while the token is live.
+  google.protobuf.Timestamp revoked_at = 7;
+}
+
+// CreateMachineTokenRequest mints a machine token. project_ids, when
+// non-empty, must be a subset of the caller's organization's projects
+// (rejected otherwise); empty means unscoped (every project the caller can
+// reach), the same convention as an OAuth-flow connection's scope.
+message CreateMachineTokenRequest {
+  string label = 1;
+  repeated string project_ids = 2;
+}
+
+message CreateMachineTokenResponse {
+  // token is the freshly minted metadata row.
+  MachineToken token = 1;
+  // secret is the raw bearer value (`mcp_at_…`), returned exactly once. It
+  // is never re-readable via ListMachineTokens.
+  string secret = 2;
+}
+
+message ListMachineTokensRequest {}
+
+message ListMachineTokensResponse {
+  // tokens are the caller's minted machine tokens, newest first.
+  repeated MachineToken tokens = 1;
+}
+
+message RevokeMachineTokenRequest {
+  string id = 1;
+}
+
+message RevokeMachineTokenResponse {}
+
+// ---- Organization settings ----
+
+// OrganizationSettings are the escalation knobs, per organization.
+// Zero = rule disabled; is_default flags say the value is the product default
+// (no explicit choice stored).
+message OrganizationSettings {
+  // claim_timeout_seconds keeps its wire name for compatibility; it is the
+  // NUDGE delay — how long a pool question may sit unanswered before its
+  // candidates are reminded once.
+  int64 claim_timeout_seconds = 1;
+  bool claim_timeout_is_default = 3;
+  // silence_timeout (2, 4) died with the claim model (hub-and-spoke phase 2):
+  // there is no claim lease to release anymore.
+  reserved 2, 4;
+  reserved "silence_timeout_seconds", "silence_timeout_is_default";
+  // alert_timeout_seconds is the third escalation rung: a pool conversation
+  // still unclaimed after this delay posts once to the alert channel.
+  int64 alert_timeout_seconds = 5;
+  bool alert_timeout_is_default = 6;
+  // default_alert_channel_id is the org-wide fallback alert channel, used when
+  // the project's provider has no alert_channel_id of its own.
+  string default_alert_channel_id = 7;
+  // capture_second_opinions (8, 9) died with the claim model (hub-and-spoke
+  // phase 2): every reply appends to the thread, so there is nothing to
+  // capture-or-reject.
+  reserved 8, 9;
+  reserved "capture_second_opinions", "capture_second_opinions_is_default";
+}
+
+// GetOrganizationSettingsRequest carries no fields: the organization is the
+// caller's (org-admin gated).
+message GetOrganizationSettingsRequest {}
+
+message GetOrganizationSettingsResponse {
+  OrganizationSettings settings = 1;
+}
+
+message UpdateOrganizationSettingsRequest {
+  int64 claim_timeout_seconds = 1;   // 0 disables the unanswered nudge
+  // silence_timeout (2) and capture_second_opinions (5) died with the claim
+  // model (hub-and-spoke phase 2).
+  reserved 2, 5;
+  reserved "silence_timeout_seconds", "capture_second_opinions";
+  // alert_timeout_seconds: optional so presence distinguishes "unset (leave
+  // unchanged)" from an explicit 0 (= disable the channel alert). An older
+  // client that never sets it no longer silently disables alerts.
+  optional int64 alert_timeout_seconds = 3;
+  // default_alert_channel_id sets the org fallback alert channel; the literal
+  // "-" clears it (empty string means "leave unchanged").
+  string default_alert_channel_id = 4;
+}
+
+message UpdateOrganizationSettingsResponse {
+  OrganizationSettings settings = 1;
+}
+
+// GetOrganizationRequest carries no fields: the organization is the caller's,
+// resolved from the auth token (any member may read the org's identity).
+message GetOrganizationRequest {}
+
+message GetOrganizationResponse {
+  string organization_id = 1;
+  // name is the human-readable organization name (the dashboard derives the
+  // workspace slug from it client-side).
+  string name = 2;
+}
+
+// RenameOrganizationRequest renames the caller's organization. The org is the
+// caller's, resolved from the auth token (never a request field); the body
+// carries only the new name.
+message RenameOrganizationRequest {
+  // name is the new organization name. Trimmed and rejected when empty or
+  // longer than the server's limit.
+  string name = 1;
+}
+
+message RenameOrganizationResponse {
+  // name is the saved (trimmed) organization name.
+  string name = 1;
+}
+
+// DeleteOrganizationRequest hard-deletes the caller's organization. The org is
+// resolved from the auth token, never a request field.
+message DeleteOrganizationRequest {
+  // confirm_name is the organization name the admin typed to confirm. The
+  // server rejects the delete (InvalidArgument) unless it matches the org's
+  // current name (trimmed, case-insensitive) — a guard against accidents.
+  string confirm_name = 1;
+}
+
+message DeleteOrganizationResponse {}

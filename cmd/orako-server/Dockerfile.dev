@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Development image for orako-server: hot-reload via reflex behind a
+# lint -> test -> run-with-race gate. The repo is bind-mounted at /src by
+# docker-compose.dev.yml, so editing a .go file on the host triggers a reload.
+FROM golang:1.25-bookworm
+
+# Pinned dev tooling. Keep golangci-lint in lockstep with .golangci.yml (v2).
+RUN go install github.com/cespare/reflex@latest \
+ && go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+
+WORKDIR /src
+
+# Prime the module cache so reloads don't re-download on every code change.
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+# reflex watches Go sources and go.mod, restarting the boot gate on change.
+ENTRYPOINT ["reflex", "-r", "(\\.go$|go\\.mod$)", "-s", "--", "sh", "./scripts/start.sh"]

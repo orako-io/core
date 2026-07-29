@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# team.config.yml — Orako team collaboration configuration.
+# Place this file in your repository root and commit it so every team member
+# shares the same awareness settings.
+#
+# mode: controls how broadly activity is shared with the room.
+#   awareness    — read-only team visibility (default)
+#   collaborative — full collaborative editing awareness
+#   solo          — no sharing; local state only
+mode: awareness
+
+# exclude: extra glob patterns (path.Match syntax) added on top of the
+# built-in hard-blocks. Hard-blocks (.env, .git/, node_modules/, *.key,
+# *.pem, secrets/, dist/, build/) are always enforced regardless of this list.
+exclude:
+  - "dist/**"
+  - "*.pb.go"
+
+# share: controls which event types are forwarded to the Orako room.
+share:
+  plans: true
+  branches: true
+  diffs: false
+
+# license: reserved license/install seam — parsed but not enforced.
+license: ""

@@ -1,0 +1,29 @@
+-- name: activeMemberCountByOrg :one
+-- Counts the distinct active persons in an org: every account in org_members
+-- (the logins) whose in-org member is not deactivated, plus every external-only
+-- member (no linked account) participating in one of the org's NON-ARCHIVED
+-- projects. Deactivated, removed and purged members are excluded — deactivation
+-- frees the slot for reuse. An external-only member whose every project is
+-- archived is likewise excluded (they route nowhere); a member with at least one
+-- active project still counts even if they also sit in an archived one.
+SELECT (
+    (SELECT COUNT(*)
+     FROM org_members om
+     WHERE om.org_id = $1
+       AND NOT EXISTS (
+         SELECT 1
+         FROM members m
+         JOIN project_members pm ON pm.member_id = m.id
+         JOIN projects p ON p.id = pm.project_id
+         WHERE p.org_id = $1
+           AND m.account_id = om.account_id
+           AND m.status IN ('deactivated', 'removed', 'purged')))
+  + (SELECT COUNT(DISTINCT m.id)
+     FROM members m
+     JOIN project_members pm ON pm.member_id = m.id
+     JOIN projects p ON p.id = pm.project_id
+     WHERE p.org_id = $1
+       AND m.account_id IS NULL
+       AND m.status NOT IN ('deactivated', 'removed', 'purged')
+       AND p.archived_at IS NULL)
+)::bigint AS member_count;

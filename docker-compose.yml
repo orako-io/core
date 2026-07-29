@@ -1,0 +1,103 @@
+# Production compose for Orako: stock Postgres + orako-server.
+#
+# Distinct from docker-compose.dev.yml which uses a hot-reload dev server.
+# This file runs the compiled production binary built from
+# cmd/orako-server/Dockerfile.
+#
+# Usage:
+#   docker compose up          # bring up the production stack
+#   docker compose down -v     # tear down and delete volumes
+#
+# First run: migrations are applied automatically on server startup via
+# sql.RunMigrations (embedded golang-migrate), so no separate migrate step
+# is required. On subsequent starts RunMigrations is a no-op.
+#
+# History search works out of the box on stock Postgres: it uses FTS + pg_trgm
+# (a bundled contrib module), so there is no model to provision, no volume to
+# mount, and no non-stock extension to install.
+#
+# Environment variables (.env or shell export):
+#   POSTGRES_USER     (default: orako)
+#   POSTGRES_PASSWORD (required in prod — set in .env, never in this file)
+#   POSTGRES_DB       (default: orako)
+#   ORAKO_HTTP_PORT   (default: 8080)
+#   ORAKO_SLACK_CLIENT_ID, ORAKO_SLACK_CLIENT_SECRET, ORAKO_SLACK_SIGNING_SECRET
+#   ORAKO_BASE_URL    (required for Slack OAuth redirect)
+#   (License key: set in the dashboard under Settings → License, stored in the DB —
+#    no longer an env var; raises the Community caps, verified offline)
+name: orako-prod
+
+services:
+  orako_postgres:
+    # Stock Postgres 16 (pg_trgm ships as a bundled contrib module). For
+    # production self-host, pin this to a specific patch or digest (e.g.
+    # postgres:16.4) so a surprise Postgres major never lands on a
+    # `docker compose pull`.
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-orako}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-orako}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - orako_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-orako} -d ${POSTGRES_DB:-orako}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+
+  orako_server:
+    build:
+      context: .
+      dockerfile: cmd/orako-server/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      orako_postgres:
+        condition: service_healthy
+    environment:
+      # Postgres connection (orako_postgres service).
+      POSTGRES_HOST: orako_postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER:-orako}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-orako}
+
+      # HTTP server port inside the container.
+      ORAKO_HTTP_PORT: ${ORAKO_HTTP_PORT:-8080}
+
+      # Slack OAuth app credentials (leave blank to disable Slack integration).
+      ORAKO_SLACK_CLIENT_ID: ${ORAKO_SLACK_CLIENT_ID:-}
+      ORAKO_SLACK_CLIENT_SECRET: ${ORAKO_SLACK_CLIENT_SECRET:-}
+      ORAKO_SLACK_SIGNING_SECRET: ${ORAKO_SLACK_SIGNING_SECRET:-}
+      ORAKO_BASE_URL: ${ORAKO_BASE_URL:-}
+
+      # Auth. Self-host uses the HS256 shared-secret mode; set both when a real
+      # ORAKO_BASE_URL is configured (dev mode fails closed once deployed).
+      # Empty pass-through is harmless: unset behaves as if not listed.
+      ORAKO_AUTH_MODE: ${ORAKO_AUTH_MODE:-}
+      ORAKO_AUTH_HS256_SECRET: ${ORAKO_AUTH_HS256_SECRET:-}
+      ORAKO_AUTH_ISSUER: ${ORAKO_AUTH_ISSUER:-}
+      ORAKO_AUTH_AUDIENCE: ${ORAKO_AUTH_AUDIENCE:-}
+
+      # First local-auth admin, seeded once on boot (idempotent). bootstrap.sh
+      # writes these to .env; forward them into the container so a fresh
+      # self-host has an account to sign in as. Without this passthrough a
+      # local-auth boot has no admin and nobody can log in.
+      ORAKO_ADMIN_EMAIL: ${ORAKO_ADMIN_EMAIL:-}
+      ORAKO_ADMIN_PASSWORD: ${ORAKO_ADMIN_PASSWORD:-}
+
+      # The license key that raises the Community caps is set IN-APP (dashboard →
+      # Settings → License) and stored in the DB — it is no longer an env var. The
+      # signing public key is baked into the binary, so no license config is needed
+      # here. The instance auto-renews the key each period; set
+      # ORAKO_LICENSE_OFFLINE=true for an air-gapped install. See docs/operations.md.
+      ORAKO_LICENSE_OFFLINE: ${ORAKO_LICENSE_OFFLINE:-}
+    ports:
+      - "${ORAKO_HTTP_PORT:-8080}:8080"
+
+volumes:
+  orako_pgdata:

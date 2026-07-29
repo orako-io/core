@@ -1,0 +1,52 @@
+# Development stack for Orako: Postgres 16 + hot-reloading orako-server.
+# Bring it up with `task up` (or `task upb` to rebuild images).
+name: orako
+
+services:
+  orako_postgres:
+    image: postgres:16
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - orako_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  orako_server:
+    build:
+      context: .
+      dockerfile: cmd/orako-server/Dockerfile.dev
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: orako_postgres
+      POSTGRES_PORT: "5432"
+      # The dev stack is self-contained: always use the bundled postgres, never
+      # the managed SaaS database a local .env may point at (the boot-gate
+      # integration tests would run against production data and exhaust the
+      # Supabase pooler). Empty overrides any ORAKO_DATABASE_URL from .env.
+      ORAKO_DATABASE_URL: ""
+      # The boot gate runs the integration tests against these guaranteed-present
+      # services; require them rather than skipping on a transient hiccup.
+      ORAKO_INTEGRATION: "1"
+      # Dev auth defaults to the unsigned stub, which is fail-closed unless
+      # explicitly opted into (M4).
+      ORAKO_ALLOW_INSECURE_DEV_AUTH: "1"
+    ports:
+      - "${ORAKO_HTTP_PORT:-8080}:8080"
+    volumes:
+      - .:/src
+    depends_on:
+      orako_postgres:
+        condition: service_healthy
+
+volumes:
+  orako_pgdata:

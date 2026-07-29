@@ -1,0 +1,233 @@
+version: "2"
+run:
+  concurrency: 4
+  timeout: 5m
+  tests: true
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 50
+
+linters:
+  enable:
+    # correctness
+    - govet
+    - staticcheck
+    - unused
+    - errcheck
+    - errorlint
+    - nilerr
+    - forcetypeassert
+    - copyloopvar
+    - durationcheck
+    - reassign
+    # style
+    - gocritic
+    - revive
+    - wsl_v5
+    - whitespace
+    - godot
+    - misspell
+    - dupword
+    - predeclared
+    - errname
+    - asciicheck
+    # complexity
+    - gocyclo
+    - nestif
+    - funlen
+    - dupl
+    # performance
+    - perfsprint
+    - unconvert
+    - ineffassign
+    - goconst
+    # security & resources
+    - gosec
+    - bidichk
+    - bodyclose
+    - noctx
+    - containedctx
+    - fatcontext
+    - sqlclosecheck
+    - rowserrcheck
+    # logging
+    - sloglint
+    - loggercheck
+    # testing
+    - testifylint
+    - thelper
+    - usetesting
+    - paralleltest
+    # modernization & meta
+    - modernize
+    - exptostd
+    - intrange
+    - usestdlibvars
+    - exhaustive
+    - nolintlint
+    # strict Orako additions (mirrors supallm/core)
+    - gochecknoglobals
+    - gochecknoinits
+    - exhaustruct
+
+  disable:
+    - lll
+    - prealloc
+    - wrapcheck
+    - err113
+    - mnd
+    - iface
+    - nakedret
+    - noinlineerr
+    - gocognit
+    - cyclop
+    - depguard
+    - goheader
+    - importas
+    - funcorder
+    - godoclint
+    - varnamelen
+    - unparam
+    - makezero
+    - testpackage
+    - embeddedstructfieldcheck
+    - iotamixing
+    - unqueryvet
+    - recvcheck
+    - mirror
+    - protogetter
+    - spancheck
+    - zerologlint
+
+  exclusions:
+    paths:
+      - vendor$
+      - third_party$
+      - testutils$
+      - examples$
+    # Per-file rules: exclude linters that fight the house style in test code.
+    # Test files initialize fakes/stubs with only the fields they need (zero
+    # values are intentional), use fixed UUID globals for readable test output,
+    # repeat short credential strings for clarity, and have longer/complex
+    # functions by the nature of table-driven tests.
+    rules:
+      # exhaustruct fires on every partial fake/stub init in tests — 183 hits.
+      # Zero-valued fields in test helpers are intentional; the linter earns its
+      # keep on production code (where optional fields should be tagged).
+      - path: _test\.go
+        linters:
+          - exhaustruct
+      # wsl_v5 "too many statements above defer" fires on every test that sets
+      # up a svc struct before startTestServerWithAuth — this is the house style
+      # for Connect-RPC handler tests and is not worth overriding.
+      - path: _test\.go
+        linters:
+          - wsl_v5
+      # gosec G101 fires on hardcoded test credentials (xoxb-test, sig_test,
+      # s3cr3t). These are fake values in isolated test helpers, not real secrets.
+      - path: _test\.go
+        linters:
+          - gosec
+      # gochecknoglobals fires on fixed-UUID test fixtures (anyID, testMemberID).
+      # Globals in test files improve test-output readability and are idiomatic.
+      - path: _test\.go
+        linters:
+          - gochecknoglobals
+      # goconst fires on repeated credential keys / test strings in test tables.
+      # Extracting them into constants would reduce test readability.
+      - path: _test\.go
+        linters:
+          - goconst
+      # dupl fires on structurally similar test functions (table-driven patterns,
+      # reject-missing-field tests). Deduplication here would harm readability.
+      - path: _test\.go
+        linters:
+          - dupl
+      # gocyclo fires on large integration tests and table-driven tests whose
+      # cyclomatic complexity comes from exhaustive case coverage, not design debt.
+      - path: _test\.go
+        linters:
+          - gocyclo
+      # funlen fires on long table-driven tests. Test functions justify longer
+      # bodies to keep related cases co-located.
+      - path: _test\.go
+        linters:
+          - funlen
+
+  settings:
+    depguard:
+      rules:
+        # The domain is the innermost layer: it may depend on nothing but itself
+        # (domain/model + stdlib). This keeps read models and other application
+        # concerns out of the domain — a query read shape lives in the query
+        # package, never here.
+        domain-stays-pure:
+          files:
+            - '**/internal/application/domain/**'
+          deny:
+            - pkg: github.com/orako-io/core/internal/application/command
+              desc: the domain must not depend on the application layer (command)
+            - pkg: github.com/orako-io/core/internal/application/query
+              desc: read models live in the query package; the domain must not depend on it
+            - pkg: github.com/orako-io/core/internal/adapters
+              desc: dependency rule — the domain must not depend on adapters
+            - pkg: github.com/orako-io/core/internal/infra
+              desc: dependency rule — the domain must not depend on infra
+        # CQRS: the read side and write side never import each other.
+        query-not-command:
+          files:
+            - '**/internal/application/query/*'
+          deny:
+            - pkg: github.com/orako-io/core/internal/application/command
+              desc: CQRS — the query (read) side must not depend on the command (write) side
+        command-not-query:
+          files:
+            - '**/internal/application/command/*'
+          deny:
+            - pkg: github.com/orako-io/core/internal/application/query
+              desc: CQRS — the command (write) side must not depend on the query (read) side
+    dupl:
+      threshold: 100
+    errcheck:
+      check-type-assertions: true
+    exhaustruct:
+      # Enforce explicit field initialization only for Orako's own types.
+      # Third-party structs (http.Server, cobra.Command, ...) are left alone;
+      # mark intentionally-optional fields with `exhaustruct:"optional"`.
+      include:
+        - '^github\.com/orako-io/core/.*'
+      # Generated protobuf messages carry optional/oneof fields by design;
+      # callers set only the variant they need, so exempt the generated package
+      # (now folded in-tree at core/gen after the pkg→core monorepo merge).
+      exclude:
+        - '^github\.com/orako-io/core/gen/.*'
+    funlen:
+      lines: 120
+      statements: 80
+    goconst:
+      min-len: 3
+      min-occurrences: 4
+    gocyclo:
+      min-complexity: 13
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+    wsl_v5:
+      allow-first-in-block: true
+      allow-whole-block: false
+      branch-max-lines: 2
+
+formatters:
+  enable:
+    - gofmt
+    - gofumpt
+  settings:
+    gofumpt:
+      extra-rules: true
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

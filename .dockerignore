@@ -1,0 +1,9 @@
+# Keep the build context lean and hermetic.
+.git
+bin/
+data/
+web/node_modules
+# Local env files must never leak into images; auth mode and the Supabase
+# publishable pair enter the web build via --build-arg only.
+.env
+web/.env

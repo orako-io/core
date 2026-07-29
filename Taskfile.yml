@@ -1,0 +1,127 @@
+# orako core - developer Taskfile (https://taskfile.dev)
+# The dev stack runs entirely in Docker Compose; the Go server hot-reloads via
+# reflex behind a lint -> test -> run gate. See scripts/start.sh.
+#
+# Install the runner: `go install github.com/go-task/task/v3/cmd/task@latest`
+# (or `brew install go-task`). Run `task` with no args to list targets.
+version: '3'
+
+# core is a standalone module; never let an unrelated parent go.work hijack
+# host go commands.
+env:
+  # The API contract (proto sources + generated Go bindings) now lives in-tree
+  # under proto/ and gen/ — folded from the former orako-io/pkg module into this
+  # single private module. GOPRIVATE keeps the module proxy out of the loop.
+  GOPRIVATE: github.com/orako-io/core
+  GOFLAGS: -mod=mod
+
+vars:
+  COMPOSE: docker compose -f docker-compose.dev.yml
+  COMPOSE_PROD: docker compose -f docker-compose.yml
+  # Code-generation toolchain lives in GOBIN (installed by `task tools`).
+  GOBIN:
+    sh: echo "$(go env GOPATH)/bin"
+  SQLC_VERSION: v1.31.1
+  # Keep these aligned with go.mod (google.golang.org/protobuf, connectrpc.com/connect)
+  # so the generated bindings match the runtime libraries.
+  PROTOC_GEN_GO_VERSION: v1.36.11
+  CONNECT_VERSION: v1.20.0
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+    silent: true
+
+  up:
+    desc: Start the full dev stack (postgres + orako-server, hot-reload)
+    cmds:
+      - "{{.COMPOSE}} up"
+
+  upb:
+    desc: Same as up but rebuild images first (after Dockerfile.dev or go.mod changes)
+    cmds:
+      - "{{.COMPOSE}} up --build"
+
+  server:
+    desc: Start only orako-server (and its healthy postgres dep)
+    cmds:
+      - "{{.COMPOSE}} up orako_server"
+
+  clean:
+    desc: Tear down the dev stack and drop the postgres data volume
+    cmds:
+      - "{{.COMPOSE}} down --volumes --remove-orphans"
+
+  build:
+    desc: "Build the production orako-server binary -> bin/orako-server"
+    cmds:
+      - go build -ldflags="-s -w" -o bin/orako-server ./cmd/orako-server
+
+  prod-up:
+    desc: Start the production stack (postgres + orako-server)
+    cmds:
+      - "{{.COMPOSE_PROD}} up"
+
+  prod-upb:
+    desc: Same as prod-up but rebuild the orako-server image first
+    cmds:
+      - "{{.COMPOSE_PROD}} up --build"
+
+  prod-down:
+    desc: Tear down the production stack (keeps the data volume)
+    cmds:
+      - "{{.COMPOSE_PROD}} down"
+
+  lint:
+    desc: Run golangci-lint on the host
+    cmds:
+      - golangci-lint run ./...
+
+  test:
+    desc: Run the test suite with the race detector
+    cmds:
+      - go test -race ./...
+
+  tools:
+    desc: Install the pinned code-generation toolchain into GOBIN
+    cmds:
+      - go install github.com/sqlc-dev/sqlc/cmd/sqlc@{{.SQLC_VERSION}}
+      - go install google.golang.org/protobuf/cmd/protoc-gen-go@{{.PROTOC_GEN_GO_VERSION}}
+      - go install connectrpc.com/connect/cmd/protoc-gen-connect-go@{{.CONNECT_VERSION}}
+
+  sqlc:
+    desc: Generate the typed query layer from sql/queries + sql/migrations
+    cmds:
+      - cd sql && {{.GOBIN}}/sqlc generate
+      - sh scripts/add-spdx.sh AGPL-3.0-or-later internal/adapters/eventlog
+      - sh scripts/add-spdx.sh AGPL-3.0-or-later internal/adapters/licensing
+      - sh scripts/add-spdx.sh AGPL-3.0-or-later internal/adapters/knowledge
+
+  proto:
+    desc: Regenerate the Go bindings from proto/ into gen/ (orako.v1 contract)
+    cmds:
+      - buf lint
+      - buf generate
+
+  gen:
+    desc: Regenerate everything (sqlc query layer + proto contract)
+    cmds:
+      - task: sqlc
+      - task: proto
+
+  new-migration:
+    desc: "Scaffold the next golang-migrate pair (NAME=add_foo)"
+    preconditions:
+      - sh: test -n "{{.NAME}}"
+        msg: "usage: task new-migration NAME=add_foo"
+    cmds:
+      - |
+        next=$(ls sql/migrations 2>/dev/null | sed -n 's/^\([0-9]\{4\}\)_.*/\1/p' | sort -n | tail -1)
+        next=$(printf '%04d' $(( 10#${next:-0} + 1 )))
+        up="sql/migrations/${next}_{{.NAME}}.up.sql"
+        down="sql/migrations/${next}_{{.NAME}}.down.sql"
+        printf -- '-- SPDX-License-Identifier: AGPL-3.0-or-later\n' | tee "$up" "$down" >/dev/null
+        echo "created $up"
+        echo "created $down"

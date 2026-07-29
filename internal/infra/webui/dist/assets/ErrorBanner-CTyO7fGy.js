@@ -1,0 +1,1 @@
+import{j as e,T as r}from"./index-ByNrN3Mi.js";function i({error:n}){const o=n instanceof Error?n.message:String(n);return e.jsx("div",{style:{background:r.dangerBg,border:`1px solid ${r.dangerBorder}`,borderRadius:r.rMd,padding:"11px 14px",color:r.dangerInk,fontSize:13,lineHeight:1.5,marginBottom:16},children:o})}export{i as E};

@@ -1,0 +1,10 @@
+title = "Orako Core"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "PostgreSQL constraint name, not a Discord credential"
+paths = [
+  '''internal/application/command/errors\.go''',
+]

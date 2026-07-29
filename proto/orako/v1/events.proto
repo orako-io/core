@@ -1,0 +1,254 @@
+// SPDX-License-Identifier: Apache-2.0
+
+// The Orako event contract: typed, append-only domain events that flow through
+// messaging and persist to the event log, independent of wire format or store.
+//
+// Post-pivot (2026-07-01) these model async agent<->human conversations and the
+// knowledge base — NOT the former collision-awareness product. See
+// the conversations/KB and identity/membership PRDs (workspace docs/).
+syntax = "proto3";
+
+package orako.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/orako-io/core/gen/orako/v1;orakov1";
+
+// Role a member holds within a project. A member may hold several (a dev can
+// also answer as a responder).
+enum Role {
+  ROLE_UNSPECIFIED = 0;
+  ROLE_DEV = 1;         // asks questions through an agent
+  ROLE_SPECIALIST = 2;  // answers (PO/PM/DA/senior dev)
+  ROLE_LEAD = 3;        // admin over a project
+  ROLE_ADMIN = 4;       // org admin
+}
+
+// MemberTransition is a point in a member's lifecycle. Emitted append-only so
+// membership carries a free audit trail.
+enum MemberTransition {
+  MEMBER_TRANSITION_UNSPECIFIED = 0;
+  MEMBER_TRANSITION_INVITED = 1;
+  MEMBER_TRANSITION_ACCEPTED = 2;
+  MEMBER_TRANSITION_ROLE_CHANGED = 3;
+  MEMBER_TRANSITION_SUSPENDED = 4;
+  MEMBER_TRANSITION_REMOVED = 5;   // soft-delete (archive)
+  MEMBER_TRANSITION_PURGED = 6;    // hard-delete of PII, on legal request
+  // An already-ACTIVE member was added to a(nother) project. Drives the
+  // "you've been added to <project>" notification email (coalesced: a
+  // multi-project add sends one email listing them, never one per project).
+  MEMBER_TRANSITION_ADDED_TO_PROJECT = 7;
+}
+
+// MessageRole distinguishes who authored a conversation message.
+enum MessageRole {
+  MESSAGE_ROLE_UNSPECIFIED = 0;
+  MESSAGE_ROLE_QUESTION = 1;
+  MESSAGE_ROLE_ANSWER = 2;
+  MESSAGE_ROLE_FOLLOW_UP = 3;
+  MESSAGE_ROLE_SYSTEM = 4;  // routing/timeout notes
+  // MESSAGE_ROLE_SECOND_OPINION is attributed, non-authoritative input from a
+  // losing pool candidate after another candidate claimed; never the answer of
+  // record, never flips conversation status.
+  MESSAGE_ROLE_SECOND_OPINION = 5;
+}
+
+// FeedbackVerdict is a consumer's signal on a KB answer; feeds confidence.
+enum FeedbackVerdict {
+  FEEDBACK_VERDICT_UNSPECIFIED = 0;
+  FEEDBACK_VERDICT_USEFUL = 1;
+  FEEDBACK_VERDICT_INACCURATE = 2;
+}
+
+// EventType discriminates the Envelope payload without decoding it.
+enum EventType {
+  EVENT_TYPE_UNSPECIFIED = 0;
+  EVENT_TYPE_CONVERSATION_OPENED = 1;
+  EVENT_TYPE_MESSAGE_POSTED = 2;
+  EVENT_TYPE_CONVERSATION_CLOSED = 3;
+  EVENT_TYPE_KB_ENTRY_CREATED = 4;
+  EVENT_TYPE_KB_ANSWER_SUPERSEDED = 5;
+  EVENT_TYPE_KB_FEEDBACK = 6;
+  EVENT_TYPE_MEMBER_LIFECYCLE = 7;
+  EVENT_TYPE_PRESENCE_CHANGED = 8;
+  EVENT_TYPE_PROVIDER_CONFIGURED = 9;
+  EVENT_TYPE_CONVERSATION_CLAIMED = 10;
+  EVENT_TYPE_CONVERSATION_RELEASED = 11;
+  EVENT_TYPE_CONVERSATION_PARTICIPANT_ADDED = 12;
+}
+
+// ContextRefs are the structured references the agent attaches to a question so
+// a cold responder (and later the KB) can situate it. Assembled by the agent
+// from its OWN connectors (git/Jira/Confluence) — Orako never fetches these.
+message ContextRefs {
+  repeated string files = 1;
+  repeated string ticket_urls = 2;
+  repeated string symbols = 3;
+}
+
+// ConversationOpened: the agent opened a conversation targeting one member.
+message ConversationOpened {
+  string conversation_id = 1;
+  string project_id = 2;
+  string asker_member_id = 3;
+  string member_id = 4;  // direct-ask target; empty for a pool dispatch
+  string question = 5;
+  string context = 6;  // agent-composed context packet (freeform)
+  ContextRefs refs = 7;
+}
+
+// MessagePosted: an append-only message in a conversation thread. Responder
+// answers arrive here via the Slack webhook (role = ANSWER).
+message MessagePosted {
+  string conversation_id = 1;
+  string message_id = 2;
+  string author_member_id = 3;  // empty for SYSTEM
+  MessageRole role = 4;
+  string body = 5;
+  // origin_surface is the provenance key of the platform surface this message
+  // was typed on (e.g. "discord:thread:<id>"), empty when it originated from
+  // an agent/dashboard/DM. The fan-out never posts a message back onto the
+  // surface it came from (anti-echo, hub-and-spoke phase 4).
+  string origin_surface = 6;
+  // source mirrors the message row's authorship: "human", "agent" or
+  // "system" (empty = human, the conservative legacy default). The fan-out
+  // excludes the author from delivery ONLY for human-typed messages (they
+  // saw what they typed); an agent-authored message is also delivered to its
+  // author's own channel — the human behind the agent has not seen it (and
+  // it is what makes self-ask conversations work end-to-end).
+  string source = 7;
+  // attachment_ids are the ids of the files/images carried by this message
+  // (empty for a text-only message). The bytes live in blob storage; the
+  // fan-out delivers them to every surface and the dashboard renders them.
+  repeated string attachment_ids = 8;
+}
+
+// Attachment is one file or image carried by a conversation message. The bytes
+// live in blob storage (S3-compatible); this row is the metadata + storage key.
+message Attachment {
+  string id = 1;
+  string conversation_id = 2;
+  string message_id = 3;  // empty until the attachment is linked to a message
+  string filename = 4;
+  string mime_type = 5;
+  int64 size_bytes = 6;
+  // uploaded_by_member_id is who uploaded it (the asker, when an agent uploads);
+  // empty for a system attachment.
+  string uploaded_by_member_id = 7;
+}
+
+// ConversationClosed: the conversation is resolved. A KB entry may be promoted
+// from the distilled resolution (the agent distills it; Orako does not).
+message ConversationClosed {
+  string conversation_id = 1;
+  string resolution = 2;
+  string kb_entry_id = 3;  // set when a KB entry was created
+  // closer_member_id lets subscribers tell who distilled and closed (the
+  // asking agent's member or the responder themselves).
+  string closer_member_id = 4;
+  // responder_member_id makes the event self-sufficient for notifiers.
+  string responder_member_id = 5;
+}
+
+// KBEntryCreated: a reusable, HUMAN-authored answer promoted into the KB.
+// Tags are agent-supplied facets; the embedding is generated LOCALLY by Orako
+// (in-process ONNX) — never an external API.
+message KBEntryCreated {
+  string kb_entry_id = 1;
+  string conversation_id = 2;
+  string project_id = 3;
+  string question = 4;
+  string answer = 5;
+  string author_member_id = 6;  // the responder who answered
+  ContextRefs refs = 7;
+  repeated string tags = 8;
+}
+
+// KBAnswerSuperseded: a corrected/retracted answer replaced by another. The log
+// keeps both; the projection reflects the latest. No in-place mutation.
+message KBAnswerSuperseded {
+  string kb_entry_id = 1;
+  string superseded_by_entry_id = 2;
+  string by_member_id = 3;  // the owner (author) making the correction
+  string reason = 4;
+}
+
+// KBFeedback: a consumer's usefulness/accuracy signal on an answer.
+message KBFeedback {
+  string kb_entry_id = 1;
+  string member_id = 2;
+  FeedbackVerdict verdict = 3;
+}
+
+// MemberLifecycle: an append-only membership transition.
+message MemberLifecycle {
+  string member_id = 1;
+  string project_id = 2;  // empty for org-level transitions
+  MemberTransition transition = 3;
+  Role role = 4;          // set for INVITED / ROLE_CHANGED
+}
+
+// PresenceChanged: a connection-presence heartbeat (online/offline). Ephemeral
+// availability signal, NOT file activity.
+message PresenceChanged {
+  string member_id = 1;
+  bool online = 2;
+}
+
+// ProviderConfigured: a project's messaging provider was configured or
+// reconfigured. This is an audit-only event; credentials are NOT carried here
+// — they are persisted separately in the project_providers table.
+message ProviderConfigured {
+  string project_id = 1;
+  string kind = 2;  // "slack" | "teams" | "telegram"
+}
+
+// Envelope is the single typed unit that flows through Orako: a
+// project-scoped, sequenced event carrying exactly one payload.
+message Envelope {
+  string event_id = 1;
+  string project_id = 2;  // scopes the event; drives log partitioning
+  int64 seq = 3;          // per-project monotonic position, assigned on append
+  EventType type = 4;
+  google.protobuf.Timestamp occurred_at = 5;
+
+  oneof payload {
+    ConversationOpened conversation_opened = 10;
+    MessagePosted message_posted = 11;
+    ConversationClosed conversation_closed = 12;
+    KBEntryCreated kb_entry_created = 13;
+    KBAnswerSuperseded kb_answer_superseded = 14;
+    KBFeedback kb_feedback = 15;
+    MemberLifecycle member_lifecycle = 16;
+    PresenceChanged presence_changed = 17;
+    ProviderConfigured provider_configured = 18;
+    ConversationClaimed conversation_claimed = 19;
+    ConversationReleased conversation_released = 20;
+    ConversationParticipantAdded conversation_participant_added = 21;
+  }
+}
+
+// ConversationClaimed: a candidate took responsibility for a pool-dispatched
+// conversation — from here on it is a plain 1:1.
+message ConversationClaimed {
+  string conversation_id = 1;
+  string member_id = 2;
+}
+
+// ConversationReleased: a claim lease ended without closure; the conversation
+// returns to its remaining candidates (reason "silence") or was let go
+// deliberately (reason "manual").
+message ConversationReleased {
+  string conversation_id = 1;
+  string released_member_id = 2;
+  string reason = 3;  // silence | manual
+}
+
+// ConversationParticipantAdded: a member was added to an existing conversation
+// (Option A) so they receive the fan-out of every question and answer. The
+// projector delivers the thread history to the new participant on their channel.
+message ConversationParticipantAdded {
+  string conversation_id = 1;
+  string member_id = 2;           // the newly added participant
+  string added_by_member_id = 3;  // who added them (asker or an existing participant)
+}

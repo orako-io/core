@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# buf configuration for the Orako API contract. The proto files under proto/
+# are the transport-agnostic source of truth for the RPC surface and the typed
+# event stream.
+version: v2
+modules:
+  - path: proto
+lint:
+  use:
+    - STANDARD
+breaking:
+  use:
+    - FILE

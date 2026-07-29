@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Support and questions
+    url: https://github.com/orako-io/core/discussions
+    about: Ask setup and usage questions in Discussions.
+  - name: Security vulnerability
+    url: https://github.com/orako-io/core/security/advisories/new
+    about: Report vulnerabilities privately.

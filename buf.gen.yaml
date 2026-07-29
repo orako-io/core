@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# buf code generation for the Orako API contract. Generated Go lands under
+# orako/v1 (package orakov1). Never hand-edit the *.pb.go output; edit the
+# proto sources and run `buf generate`.
+version: v2
+clean: false
+plugins:
+  - local: protoc-gen-go
+    out: gen
+
+    opt: paths=source_relative
+  - local: protoc-gen-connect-go
+    out: gen
+
+    opt: paths=source_relative
