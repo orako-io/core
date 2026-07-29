@@ -5,7 +5,7 @@
 // answer on the conversation and returns it to the agent).
 
 import { useCallback, useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router'
 import { api, type ConversationMessage, type InboxItem } from '../lib/client'
 import { cacheGet, cacheSet } from '../lib/queryCache'
 import { useIdentity } from '../lib/identity'

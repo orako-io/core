@@ -1,5 +1,5 @@
 import { useEffect, Suspense } from 'react'
-import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router'
 import { AppErrorBoundary } from './components/AppErrorBoundary'
 import { Layout } from './components/Layout'
 import { Spinner } from './components/Spinner'

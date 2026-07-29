@@ -16,7 +16,7 @@
 // actual navigation via window.location.assign.
 
 import { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router'
 import { isOidc } from '../lib/auth-mode'
 import { bearer } from '../lib/token'
 import { api } from '../lib/client'

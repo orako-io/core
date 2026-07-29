@@ -1,7 +1,7 @@
 // Conversations list (mockup 3a) — status chips + table, client-side filtering.
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router'
 import { api, type ConversationSummary, type Expert } from '../lib/client'
 import { cacheGet, cacheSet } from '../lib/queryCache'
 import { useIdentity } from '../lib/identity'

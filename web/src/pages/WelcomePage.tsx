@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { api } from '../lib/client'
 import { supabase } from '../lib/supabase'
 import { useIdentity } from '../lib/identity'

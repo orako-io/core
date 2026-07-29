@@ -7,7 +7,7 @@
 // Option A; remove/purge). Backed by the org-member admin RPCs.
 
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router'
 
 import { Page } from '../components/Layout'
 import { Button } from '../components/Button'

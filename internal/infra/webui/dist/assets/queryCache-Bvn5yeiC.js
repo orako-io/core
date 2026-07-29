@@ -1,0 +1,1 @@
+var e=new Map;function t(t){return e.get(t)}function n(t,n){e.set(t,n)}function r(t){if(!t){e.clear();return}for(let n of[...e.keys()])(n===t||n.startsWith(t))&&e.delete(n)}export{r as n,n as r,t};

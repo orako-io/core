@@ -10,7 +10,7 @@
 // built here is the one described in the mockups.
 
 import { useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router'
 import { useIdentity } from '../lib/identity'
 import { useToast, toastMessage } from '../lib/toast'
 import { api, connectSlack, type ProviderTestResult } from '../lib/client'

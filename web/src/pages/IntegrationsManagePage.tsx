@@ -8,7 +8,7 @@
 // has no binding-health signal to back it, and inventing one would be a lie.
 
 import { useCallback, useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router'
 import { useIdentity } from '../lib/identity'
 import { useToast, toastMessage } from '../lib/toast'
 import { api, communityInvites, type ConnectedChannel } from '../lib/client'

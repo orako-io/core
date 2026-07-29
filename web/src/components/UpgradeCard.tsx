@@ -2,7 +2,7 @@
 // Community cap (cal.com-style). Self-gating: it fetches the real edition and
 // renders nothing on SaaS, on an uncapped axis, or below the limit. On-prem only.
 
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { useEdition } from '../lib/edition'
 import { T } from '../lib/theme'
 

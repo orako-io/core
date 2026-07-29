@@ -18,5 +18,9 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Slack, Discord, Telegram, and Microsoft Teams delivery adapters.
 - Community and signed-license self-hosted editions.
 
+### Security
+
+- Updated React Router to 8.3.0 to address GHSA-qwww-vcr4-c8h2.
+
 [Unreleased]: https://github.com/orako-io/core/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/orako-io/core/releases/tag/v0.1.0
