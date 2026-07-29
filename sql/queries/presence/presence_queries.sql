@@ -11,3 +11,8 @@ RETURNING member_id, online, updated_at;
 SELECT member_id, online, updated_at
 FROM presence
 WHERE member_id = $1;
+
+-- name: presenceByMembers :many
+SELECT member_id, online, updated_at
+FROM presence
+WHERE member_id = ANY($1::uuid[]);

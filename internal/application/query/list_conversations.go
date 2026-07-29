@@ -55,7 +55,7 @@ func MustNewListConversationsHandler(reader ConversationsByProjectReader, partic
 func (h ListConversationsHandler) Handle(ctx context.Context, q ListConversationsQuery) ([]ConversationSummary, error) {
 	convs, err := h.reader.ConversationsByProjectIDs(ctx, q.OrgID, q.ProjectIDs, q.Status, q.CallerMemberID, q.IsOrgAdmin)
 	if err != nil {
-		return nil, err
+		return nil, translateReadError(err, "conversations")
 	}
 
 	sources := make([]participantSource, len(convs))
@@ -69,7 +69,7 @@ func (h ListConversationsHandler) Handle(ctx context.Context, q ListConversation
 
 	participants, err := resolveParticipants(ctx, h.participants, h.names, sources)
 	if err != nil {
-		return nil, err
+		return nil, translateReadError(err, "conversation_participants")
 	}
 
 	summaries := make([]ConversationSummary, len(convs))

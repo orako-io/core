@@ -148,6 +148,17 @@ func (f *fakeMemberReader) ReadMember(_ context.Context, id uuid.UUID) (MemberVi
 	return NewMemberView(m), nil
 }
 
+func (f *fakeMemberReader) ReadMembers(_ context.Context, ids []uuid.UUID) (map[uuid.UUID]MemberView, error) {
+	out := make(map[uuid.UUID]MemberView, len(ids))
+	for _, id := range ids {
+		if member, ok := f.members[id]; ok {
+			out[id] = NewMemberView(member)
+		}
+	}
+
+	return out, nil
+}
+
 // ---- fakePresenceReader --------------------------------------------------
 
 type fakePresenceReader struct {
@@ -165,6 +176,17 @@ func (f *fakePresenceReader) ReadOnline(_ context.Context, memberID uuid.UUID) (
 	}
 
 	return p.OnlineNow(), nil
+}
+
+func (f *fakePresenceReader) ReadOnlineByMembers(_ context.Context, memberIDs []uuid.UUID) (map[uuid.UUID]bool, error) {
+	out := make(map[uuid.UUID]bool, len(memberIDs))
+	for _, id := range memberIDs {
+		if presence, ok := f.records[id]; ok {
+			out[id] = presence.OnlineNow()
+		}
+	}
+
+	return out, nil
 }
 
 // ---- fakeProjectsByMemberReader ------------------------------------------
@@ -258,6 +280,18 @@ func (f *fakeAlertRoutingByProject) ConfiguredProvidersWithAlertChannel(
 	projectID uuid.UUID,
 ) ([]service.ProviderAlertChannel, error) {
 	return f.byProject[projectID], nil
+}
+
+func (f *fakeAlertRoutingByProject) ConfiguredProvidersWithAlertChannels(
+	_ context.Context,
+	projectIDs []uuid.UUID,
+) (map[uuid.UUID][]service.ProviderAlertChannel, error) {
+	out := make(map[uuid.UUID][]service.ProviderAlertChannel, len(projectIDs))
+	for _, id := range projectIDs {
+		out[id] = f.byProject[id]
+	}
+
+	return out, nil
 }
 
 // fakeParticipantsNames is a no-op fake for the participants/names batch

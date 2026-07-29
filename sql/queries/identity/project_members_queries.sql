@@ -17,14 +17,13 @@ UPDATE project_members
 SET domains = $3
 WHERE project_id = $1 AND member_id = $2;
 
--- name: setDomainsForMember :execrows
--- Self-serve expertise: replace a member's domains across ALL their project
--- memberships in one statement. Scope is the member (not one project), so an
--- onboarding member can set their own expertise without touching another
--- membership. Returns the number of memberships updated.
-UPDATE project_members
-SET domains = $2
-WHERE member_id = $1;
+-- name: setDomainsForMemberInOrg :execrows
+UPDATE project_members pm
+SET domains = sqlc.arg(domains)
+FROM projects p
+WHERE pm.project_id = p.id
+  AND pm.member_id = sqlc.arg(member_id)
+  AND p.org_id = sqlc.arg(org_id);
 
 -- name: projectMembersByProject :many
 SELECT project_id, member_id, domains, created_at

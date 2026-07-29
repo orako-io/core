@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	adaptererr "github.com/orako-io/core/internal/adapters/errors"
+	"github.com/orako-io/core/internal/pkg/pgconv"
 	pkgpostgres "github.com/orako-io/core/internal/pkg/postgres"
 )
 
@@ -137,9 +138,9 @@ func (s *Store) GetClient(ctx context.Context, clientID string) (Client, error) 
 func (s *Store) CreateAuthCode(ctx context.Context, code AuthCode, codeHash []byte) error {
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO oauth_authorization_codes
-			(id, code_hash, client_id, redirect_uri, code_challenge, code_challenge_method, resource, member_id, expires_at, project_ids)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-	`, code.ID, codeHash, code.ClientID, code.RedirectURI, code.CodeChallenge, code.CodeChallengeMethod,
+			(id, org_id, code_hash, client_id, redirect_uri, code_challenge, code_challenge_method, resource, member_id, expires_at, project_ids)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+	`, code.ID, pgconv.UUIDOrNull(code.OrgID), codeHash, code.ClientID, code.RedirectURI, code.CodeChallenge, code.CodeChallengeMethod,
 		code.Resource, code.MemberID, code.ExpiresAt, projectIDsToText(code.ProjectIDs))
 	if err != nil {
 		return fmt.Errorf("oauth: creating authorization code: %w", adaptererr.Decode(err))
@@ -165,8 +166,8 @@ func (s *Store) ConsumeAuthCode(ctx context.Context, rawCode string) (AuthCode, 
 		UPDATE oauth_authorization_codes
 		SET used_at = NOW()
 		WHERE code_hash = $1 AND used_at IS NULL AND expires_at > NOW()
-		RETURNING id, client_id, redirect_uri, code_challenge, code_challenge_method, resource, member_id, expires_at, project_ids
-	`, HashSecret(rawCode)).Scan(&ac.ID, &ac.ClientID, &ac.RedirectURI, &ac.CodeChallenge, &ac.CodeChallengeMethod,
+		RETURNING id, COALESCE(org_id, '`+pgconv.NilOrgID+`'::uuid), client_id, redirect_uri, code_challenge, code_challenge_method, resource, member_id, expires_at, project_ids
+	`, HashSecret(rawCode)).Scan(&ac.ID, &ac.OrgID, &ac.ClientID, &ac.RedirectURI, &ac.CodeChallenge, &ac.CodeChallengeMethod,
 		&ac.Resource, &ac.MemberID, &ac.ExpiresAt, &scope)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -246,9 +247,9 @@ func (s *Store) RotateTokenPair(
 // insertToken is the shared INSERT behind CreateTokenPair's two rows.
 func insertToken(ctx context.Context, tx pgx.Tx, t Token, hash []byte) error {
 	_, err := tx.Exec(ctx, `
-		INSERT INTO oauth_tokens (id, member_id, client_id, resource, kind, token_hash, grant_id, expires_at, project_ids)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-	`, t.ID, t.MemberID, t.ClientID, t.Resource, string(t.Kind), hash, t.GrantID, t.ExpiresAt, projectIDsToText(t.ProjectIDs))
+		INSERT INTO oauth_tokens (id, org_id, member_id, client_id, resource, kind, token_hash, grant_id, expires_at, project_ids)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+	`, t.ID, pgconv.UUIDOrNull(t.OrgID), t.MemberID, t.ClientID, t.Resource, string(t.Kind), hash, t.GrantID, t.ExpiresAt, projectIDsToText(t.ProjectIDs))
 
 	return adaptererr.Decode(err)
 }
@@ -267,11 +268,11 @@ func (s *Store) GetToken(ctx context.Context, rawToken string, kind TokenKind) (
 	)
 
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, member_id, client_id, resource, kind, grant_id, expires_at, revoked_at, last_used_at, project_ids
+		SELECT id, COALESCE(org_id, '`+pgconv.NilOrgID+`'::uuid), member_id, client_id, resource, kind, grant_id, expires_at, revoked_at, last_used_at, project_ids
 		FROM oauth_tokens
 		WHERE token_hash = $1 AND kind = $2
 	`, HashSecret(rawToken), string(kind)).Scan(
-		&t.ID, &t.MemberID, &t.ClientID, &t.Resource, (*string)(&t.Kind), &t.GrantID, &t.ExpiresAt, &revokedAt, &lastUsed, &scope,
+		&t.ID, &t.OrgID, &t.MemberID, &t.ClientID, &t.Resource, (*string)(&t.Kind), &t.GrantID, &t.ExpiresAt, &revokedAt, &lastUsed, &scope,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -328,13 +329,13 @@ func (s *Store) RevokeGrant(ctx context.Context, grantID uuid.UUID) error {
 	return nil
 }
 
-// ListGrantsByMember returns one row per grant_id belonging to memberID,
+// ListGrantsByMember returns one row per grant in an org for memberID,
 // aggregating the access+refresh pair (and every pair produced by rotating
 // it) sharing that grant — the dashboard's Connections list. Only live grants
 // are returned: a grant with every token revoked (the caller already
 // disconnected it, or reuse detection killed it) is omitted entirely rather
 // than shown as a dead row. Newest connection first.
-func (s *Store) ListGrantsByMember(ctx context.Context, memberID uuid.UUID) ([]Grant, error) {
+func (s *Store) ListGrantsByMember(ctx context.Context, orgID, memberID uuid.UUID) ([]Grant, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT ot.grant_id, oc.client_name, ot.resource, ot.project_ids,
 		       MIN(ot.created_at) AS connected_at,
@@ -342,11 +343,11 @@ func (s *Store) ListGrantsByMember(ctx context.Context, memberID uuid.UUID) ([]G
 		       MAX(ot.expires_at) AS expires_at
 		FROM oauth_tokens ot
 		JOIN oauth_clients oc ON oc.client_id = ot.client_id
-		WHERE ot.member_id = $1
+		WHERE ot.org_id = $1 AND ot.member_id = $2
 		GROUP BY ot.grant_id, oc.client_name, ot.resource, ot.project_ids
 		HAVING bool_or(ot.revoked_at IS NULL)
 		ORDER BY connected_at DESC
-	`, memberID)
+	`, orgID, memberID)
 	if err != nil {
 		return nil, fmt.Errorf("oauth: listing grants for member %s: %w", memberID, adaptererr.Decode(err))
 	}
@@ -384,16 +385,16 @@ func (s *Store) ListGrantsByMember(ctx context.Context, memberID uuid.UUID) ([]G
 	return grants, nil
 }
 
-// RevokeGrantForMember invalidates every token sharing grantID, scoped to
-// memberID so a caller can never revoke another member's grant — the
+// RevokeGrantForMember invalidates every token sharing grantID, scoped to the
+// active org and member so a caller can never revoke another grant — the
 // dashboard's "disconnect this agent" action. Returns adaptererr.ErrNotFound
-// when the grant does not exist, does not belong to memberID, or is already
+// when the grant does not belong to that org/member or is already
 // fully revoked.
-func (s *Store) RevokeGrantForMember(ctx context.Context, memberID, grantID uuid.UUID) error {
+func (s *Store) RevokeGrantForMember(ctx context.Context, orgID, memberID, grantID uuid.UUID) error {
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE oauth_tokens SET revoked_at = NOW()
-		WHERE grant_id = $1 AND member_id = $2 AND revoked_at IS NULL
-	`, grantID, memberID)
+		WHERE grant_id = $1 AND org_id = $2 AND member_id = $3 AND revoked_at IS NULL
+	`, grantID, orgID, memberID)
 	if err != nil {
 		return fmt.Errorf("oauth: revoking grant %s for member %s: %w", grantID, memberID, adaptererr.Decode(err))
 	}
@@ -426,10 +427,10 @@ func (s *Store) CreateMachineToken(ctx context.Context, t Token, hash []byte, la
 	var createdAt time.Time
 
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO oauth_tokens (id, member_id, client_id, resource, kind, token_hash, grant_id, expires_at, project_ids, label)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		INSERT INTO oauth_tokens (id, org_id, member_id, client_id, resource, kind, token_hash, grant_id, expires_at, project_ids, label)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING created_at
-	`, t.ID, t.MemberID, t.ClientID, t.Resource, string(t.Kind), hash, t.GrantID, t.ExpiresAt, projectIDsToText(t.ProjectIDs), label).Scan(&createdAt)
+	`, t.ID, pgconv.UUIDOrNull(t.OrgID), t.MemberID, t.ClientID, t.Resource, string(t.Kind), hash, t.GrantID, t.ExpiresAt, projectIDsToText(t.ProjectIDs), label).Scan(&createdAt)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("oauth: creating machine token: %w", adaptererr.Decode(err))
 	}
@@ -439,27 +440,13 @@ func (s *Store) CreateMachineToken(ctx context.Context, t Token, hash []byte, la
 
 // ListMachineTokens returns orgID's minted machine tokens (live and revoked,
 // so the dashboard can show history), newest first — every org admin sees
-// every machine token in the org, not just the ones they personally minted
-// (a machine token is org infrastructure, not a personal session). A token
-// belongs to an org through its owning member's CURRENT project
-// memberships: the EXISTS(project_members ⋈ projects) check is the same
-// "does this member belong to this org" idiom OrganizationStore.DeleteOrg
-// uses to find orphaned members, just checked positively and filtered to
-// org_id instead of applied as a NOT EXISTS cleanup predicate. This
-// deliberately does NOT use the token's own (possibly empty, "unscoped")
-// project_ids — that would miss unscoped tokens entirely. Filtered to
-// client_id = MachineClientID so an OAuth-flow connection sharing this table
-// never leaks in. Never the secret or its hash.
+// every machine token in the org, not just the ones they personally minted.
 func (s *Store) ListMachineTokens(ctx context.Context, orgID uuid.UUID) ([]MachineToken, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT ot.id, ot.label, ot.project_ids, ot.created_at, ot.expires_at, ot.last_used_at, ot.revoked_at
 		FROM oauth_tokens ot
 		WHERE ot.client_id = $1
-		  AND EXISTS (
-		      SELECT 1 FROM project_members pm
-		      JOIN projects p ON p.id = pm.project_id
-		      WHERE pm.member_id = ot.member_id AND p.org_id = $2
-		  )
+		  AND ot.org_id = $2
 		ORDER BY ot.created_at DESC
 	`, MachineClientID, orgID)
 	if err != nil {
@@ -520,11 +507,7 @@ func (s *Store) RevokeMachineToken(ctx context.Context, orgID, tokenID uuid.UUID
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE oauth_tokens ot SET revoked_at = NOW()
 		WHERE ot.id = $1 AND ot.client_id = $2 AND ot.revoked_at IS NULL
-		  AND EXISTS (
-		      SELECT 1 FROM project_members pm
-		      JOIN projects p ON p.id = pm.project_id
-		      WHERE pm.member_id = ot.member_id AND p.org_id = $3
-		  )
+		  AND ot.org_id = $3
 	`, tokenID, MachineClientID, orgID)
 	if err != nil {
 		return fmt.Errorf("oauth: revoking machine token %s for org %s: %w", tokenID, orgID, adaptererr.Decode(err))

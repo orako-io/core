@@ -8,10 +8,8 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	adaptererr "github.com/orako-io/core/internal/adapters/errors"
-	"github.com/orako-io/core/internal/adapters/identity"
 	"github.com/orako-io/core/internal/pkg/edition"
 	"github.com/orako-io/core/internal/pkg/errs"
 )
@@ -37,6 +35,14 @@ type orgMemberCounter interface {
 	CountByOrg(ctx context.Context, orgID uuid.UUID) (int, error)
 }
 
+type orgLimitLocker interface {
+	LockOrg(ctx context.Context, orgID uuid.UUID) error
+}
+
+type instanceLimitLocker interface {
+	LockInstance(ctx context.Context) error
+}
+
 // communityLimitErr is the typed error a cap breach returns. It maps through
 // the existing errs.InvalidError channel (no new transport wiring) and its
 // message doubles as the dashboard upgrade prompt.
@@ -56,6 +62,7 @@ func communityLimitErr(resource string, limit int) error {
 type CommunityMemberGate struct {
 	projects projectOrgReader
 	members  orgMemberCounter
+	locker   orgLimitLocker `exhaustruct:"optional"`
 	max      int
 }
 
@@ -75,6 +82,12 @@ func (g CommunityMemberGate) AllowNewMember(ctx context.Context, projectID uuid.
 		return nil
 	}
 
+	if g.locker != nil {
+		if err := g.locker.LockOrg(ctx, project.OrgID); err != nil {
+			return errs.InternalError{Err: err}
+		}
+	}
+
 	n, err := g.members.CountByOrg(ctx, project.OrgID)
 	if err != nil {
 		return translateGateErr(err)
@@ -89,14 +102,21 @@ func (g CommunityMemberGate) AllowNewMember(ctx context.Context, projectID uuid.
 
 // CommunityOrgGate caps the instance at `max` organizations.
 type CommunityOrgGate struct {
-	orgs orgCounter
-	max  int
+	orgs   orgCounter
+	locker instanceLimitLocker `exhaustruct:"optional"`
+	max    int
 }
 
 // AllowNewOrg blocks once the instance holds `max` organizations.
 func (g CommunityOrgGate) AllowNewOrg(ctx context.Context) error {
 	if g.max <= 0 {
 		return nil // 0/negative = unlimited.
+	}
+
+	if g.locker != nil {
+		if err := g.locker.LockInstance(ctx); err != nil {
+			return errs.InternalError{Err: err}
+		}
 	}
 
 	n, err := g.orgs.CountAll(ctx)
@@ -114,6 +134,7 @@ func (g CommunityOrgGate) AllowNewOrg(ctx context.Context) error {
 // CommunityProjectGate caps an org at `max` projects.
 type CommunityProjectGate struct {
 	projects projectCounter
+	locker   orgLimitLocker `exhaustruct:"optional"`
 	max      int
 }
 
@@ -126,6 +147,12 @@ func (g CommunityProjectGate) AllowNewProject(ctx context.Context, orgID uuid.UU
 
 	if orgID == uuid.Nil {
 		return nil
+	}
+
+	if g.locker != nil {
+		if err := g.locker.LockOrg(ctx, orgID); err != nil {
+			return errs.InternalError{Err: err}
+		}
 	}
 
 	n, err := g.projects.CountByOrg(ctx, orgID)
@@ -150,14 +177,21 @@ type instanceSeatCounter interface {
 // self-host is one customer with N seats across all its orgs. Satisfies
 // SeatGate.
 type LicensedSeatGate struct {
-	seats instanceSeatCounter
-	max   int
+	seats  instanceSeatCounter
+	locker instanceLimitLocker `exhaustruct:"optional"`
+	max    int
 }
 
 // AllowNewMember blocks once the instance is at its licensed seat count.
 func (g LicensedSeatGate) AllowNewMember(ctx context.Context, _ uuid.UUID) error {
 	if g.max <= 0 {
 		return nil
+	}
+
+	if g.locker != nil {
+		if err := g.locker.LockInstance(ctx); err != nil {
+			return errs.InternalError{Err: err}
+		}
 	}
 
 	n, err := g.seats.CountInstanceSeats(ctx)
@@ -178,9 +212,7 @@ func (g LicensedSeatGate) AllowNewMember(ctx context.Context, _ uuid.UUID) error
 // BuildMemberGate returns the member-add gate for the resolved edition: the
 // billing seat gate under SaaS, the community member cap under Community, or nil
 // (no enforcement) for a Licensed instance.
-func BuildMemberGate(pool *pgxpool.Pool, projects projectOrgReader, ed edition.Edition) SeatGate {
-	orgs := identity.NewOrganizationStore(pool)
-
+func BuildMemberGate(projects projectOrgReader, members orgMemberCounter, seats instanceSeatCounter, orgLocker orgLimitLocker, instanceLocker instanceLimitLocker, ed edition.Edition) SeatGate {
 	switch ed.Kind {
 	case edition.SaaS:
 		// The SaaS billing seat gate is injected by the SaaS build (application.New
@@ -189,12 +221,12 @@ func BuildMemberGate(pool *pgxpool.Pool, projects projectOrgReader, ed edition.E
 	case edition.Community:
 		// Community caps members PER ORG (5/org).
 		if ed.Limits.MaxMembers > 0 {
-			return CommunityMemberGate{projects: projects, members: orgs, max: ed.Limits.MaxMembers}
+			return CommunityMemberGate{projects: projects, members: members, locker: orgLocker, max: ed.Limits.MaxMembers}
 		}
 	case edition.Licensed:
 		// A paid license caps seats INSTANCE-WIDE (1 customer = N seats, all orgs).
 		if ed.Limits.MaxMembers > 0 {
-			return LicensedSeatGate{seats: identity.NewOrganizationStore(pool), max: ed.Limits.MaxMembers}
+			return LicensedSeatGate{seats: seats, locker: instanceLocker, max: ed.Limits.MaxMembers}
 		}
 	}
 
@@ -203,9 +235,9 @@ func BuildMemberGate(pool *pgxpool.Pool, projects projectOrgReader, ed edition.E
 
 // BuildOrgGate returns the org-creation gate: the community cap under Community,
 // else nil.
-func BuildOrgGate(pool *pgxpool.Pool, ed edition.Edition) OrgLimitGate {
+func BuildOrgGate(orgs orgCounter, locker instanceLimitLocker, ed edition.Edition) OrgLimitGate {
 	if ed.Enforced() && ed.Limits.MaxOrgs > 0 {
-		return CommunityOrgGate{orgs: identity.NewOrganizationStore(pool), max: ed.Limits.MaxOrgs}
+		return CommunityOrgGate{orgs: orgs, locker: locker, max: ed.Limits.MaxOrgs}
 	}
 
 	return nil
@@ -213,9 +245,9 @@ func BuildOrgGate(pool *pgxpool.Pool, ed edition.Edition) OrgLimitGate {
 
 // BuildProjectGate returns the project-creation gate: the community cap under
 // Community, else nil.
-func BuildProjectGate(pool *pgxpool.Pool, ed edition.Edition) ProjectLimitGate {
+func BuildProjectGate(projects projectCounter, locker orgLimitLocker, ed edition.Edition) ProjectLimitGate {
 	if ed.Enforced() && ed.Limits.MaxProjects > 0 {
-		return CommunityProjectGate{projects: identity.NewProjectStore(pool), max: ed.Limits.MaxProjects}
+		return CommunityProjectGate{projects: projects, locker: locker, max: ed.Limits.MaxProjects}
 	}
 
 	return nil
@@ -231,18 +263,28 @@ func BuildProjectGate(pool *pgxpool.Pool, ed edition.Edition) ProjectLimitGate {
 // gate (SaaS, or an unlimited axis) means "allow".
 
 // NewLiveMemberGate returns a SeatGate that re-resolves per member-add.
-func NewLiveMemberGate(pool *pgxpool.Pool, projects projectOrgReader, live *edition.Live) SeatGate {
-	return liveMemberGate{pool: pool, projects: projects, live: live}
+func NewLiveMemberGate(projects projectOrgReader, members orgMemberCounter, seats instanceSeatCounter, orgLocker orgLimitLocker, instanceLocker instanceLimitLocker, live *edition.Live) SeatGate {
+	return liveMemberGate{
+		projects:       projects,
+		members:        members,
+		seats:          seats,
+		orgLocker:      orgLocker,
+		instanceLocker: instanceLocker,
+		live:           live,
+	}
 }
 
 type liveMemberGate struct {
-	pool     *pgxpool.Pool
-	projects projectOrgReader
-	live     *edition.Live
+	projects       projectOrgReader
+	members        orgMemberCounter
+	seats          instanceSeatCounter
+	orgLocker      orgLimitLocker
+	instanceLocker instanceLimitLocker
+	live           *edition.Live
 }
 
 func (g liveMemberGate) AllowNewMember(ctx context.Context, projectID uuid.UUID) error {
-	gate := BuildMemberGate(g.pool, g.projects, g.live.Current())
+	gate := BuildMemberGate(g.projects, g.members, g.seats, g.orgLocker, g.instanceLocker, g.live.Current())
 	if gate == nil {
 		return nil
 	}
@@ -251,17 +293,18 @@ func (g liveMemberGate) AllowNewMember(ctx context.Context, projectID uuid.UUID)
 }
 
 // NewLiveOrgGate returns an OrgLimitGate that re-resolves per org-create.
-func NewLiveOrgGate(pool *pgxpool.Pool, live *edition.Live) OrgLimitGate {
-	return liveOrgGate{pool: pool, live: live}
+func NewLiveOrgGate(orgs orgCounter, locker instanceLimitLocker, live *edition.Live) OrgLimitGate {
+	return liveOrgGate{orgs: orgs, locker: locker, live: live}
 }
 
 type liveOrgGate struct {
-	pool *pgxpool.Pool
-	live *edition.Live
+	orgs   orgCounter
+	locker instanceLimitLocker
+	live   *edition.Live
 }
 
 func (g liveOrgGate) AllowNewOrg(ctx context.Context) error {
-	gate := BuildOrgGate(g.pool, g.live.Current())
+	gate := BuildOrgGate(g.orgs, g.locker, g.live.Current())
 	if gate == nil {
 		return nil
 	}
@@ -270,17 +313,18 @@ func (g liveOrgGate) AllowNewOrg(ctx context.Context) error {
 }
 
 // NewLiveProjectGate returns a ProjectLimitGate that re-resolves per project-create.
-func NewLiveProjectGate(pool *pgxpool.Pool, live *edition.Live) ProjectLimitGate {
-	return liveProjectGate{pool: pool, live: live}
+func NewLiveProjectGate(projects projectCounter, locker orgLimitLocker, live *edition.Live) ProjectLimitGate {
+	return liveProjectGate{projects: projects, locker: locker, live: live}
 }
 
 type liveProjectGate struct {
-	pool *pgxpool.Pool
-	live *edition.Live
+	projects projectCounter
+	locker   orgLimitLocker
+	live     *edition.Live
 }
 
 func (g liveProjectGate) AllowNewProject(ctx context.Context, orgID uuid.UUID) error {
-	gate := BuildProjectGate(g.pool, g.live.Current())
+	gate := BuildProjectGate(g.projects, g.locker, g.live.Current())
 	if gate == nil {
 		return nil
 	}

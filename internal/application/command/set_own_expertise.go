@@ -9,15 +9,19 @@ import (
 
 	"github.com/orako-io/core/internal/application/domain/model"
 	"github.com/orako-io/core/internal/application/domain/repository"
+	"github.com/orako-io/core/internal/pkg/errs"
 )
 
-// SetOwnExpertiseHandler sets the caller's own expertise tags (domains) across
-// every project they belong to. It backs the self-serve onboarding path: unlike
-// AssignRole (org-admin gated, one project, another member), this is invoked by
-// a member on themselves. The caller identity is supplied by the server from
-// the auth token — never a request field.
+// SetOwnExpertiseHandler sets the caller's expertise tags within one org.
 type SetOwnExpertiseHandler struct {
 	projectRepo repository.ProjectRepository
+}
+
+// SetOwnExpertiseCommand updates a member's expertise within one organization.
+type SetOwnExpertiseCommand struct {
+	OrgID    uuid.UUID
+	MemberID uuid.UUID
+	Domains  []string
 }
 
 // MustNewSetOwnExpertiseHandler builds a handler. It panics on a nil
@@ -30,12 +34,17 @@ func MustNewSetOwnExpertiseHandler(projectRepo repository.ProjectRepository) Set
 	return SetOwnExpertiseHandler{projectRepo: projectRepo}
 }
 
-// Handle normalizes the domains (trim/lowercase/dedup, consistent with the rest
-// of the tag surface) and replaces the member's domains on all their project
-// memberships. memberID is the authenticated caller; it must be non-nil (the
-// server rejects uuid.Nil before reaching here).
-func (h SetOwnExpertiseHandler) Handle(ctx context.Context, memberID uuid.UUID, domains []string) error {
-	if err := h.projectRepo.SetDomainsForMember(ctx, memberID, model.NormalizeTags(domains)); err != nil {
+// Handle normalizes and replaces the member's org-scoped expertise tags.
+func (h SetOwnExpertiseHandler) Handle(ctx context.Context, cmd SetOwnExpertiseCommand) error {
+	if cmd.OrgID == uuid.Nil {
+		return errs.InvalidError{Field: fieldOrgID, Reason: reasonNoOrgResolved}
+	}
+
+	if cmd.MemberID == uuid.Nil {
+		return errs.InvalidError{Field: fieldMemberID, Reason: reasonNilUUID}
+	}
+
+	if err := h.projectRepo.SetDomainsForMemberInOrg(ctx, cmd.OrgID, cmd.MemberID, model.NormalizeTags(cmd.Domains)); err != nil {
 		return translateErr(err, "project_membership")
 	}
 

@@ -307,41 +307,43 @@ func TestNewPresence(t *testing.T) {
 	}
 }
 
-// TestNewProject validates Project constructor invariants.
-func TestNewProject(t *testing.T) {
+// TestNewProjectInOrg validates Project constructor invariants.
+func TestNewProjectInOrg(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
 		name      string
 		id        uuid.UUID
 		projName  string
+		orgID     uuid.UUID
 		wantErr   bool
 		wantField string
 	}{
-		{name: "valid", id: anyID, projName: "orako-core"},
-		{name: "nil id", id: uuid.Nil, projName: "orako-core", wantErr: true, wantField: "id"},
-		{name: "blank name", id: anyID, projName: "  ", wantErr: true, wantField: "name"},
+		{name: "valid", id: anyID, projName: "orako-core", orgID: anyID},
+		{name: "nil id", id: uuid.Nil, projName: "orako-core", orgID: anyID, wantErr: true, wantField: "id"},
+		{name: "blank name", id: anyID, projName: "  ", orgID: anyID, wantErr: true, wantField: "name"},
+		{name: "nil org", id: anyID, projName: "orako-core", orgID: uuid.Nil, wantErr: true, wantField: "org_id"},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			proj, err := model.NewProject(tc.id, tc.projName)
+			proj, err := model.NewProjectInOrg(tc.id, tc.projName, tc.orgID)
 			if tc.wantErr {
 				if err == nil {
-					t.Fatalf("NewProject: want error on field %q, got nil", tc.wantField)
+					t.Fatalf("NewProjectInOrg: want error on field %q, got nil", tc.wantField)
 				}
 
 				return
 			}
 
 			if err != nil {
-				t.Fatalf("NewProject: unexpected error: %v", err)
+				t.Fatalf("NewProjectInOrg: unexpected error: %v", err)
 			}
 
 			if proj.Name != tc.projName {
-				t.Errorf("NewProject: Name = %q, want %q", proj.Name, tc.projName)
+				t.Errorf("NewProjectInOrg: Name = %q, want %q", proj.Name, tc.projName)
 			}
 		})
 	}

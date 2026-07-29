@@ -226,7 +226,12 @@ func (f *fakeProjectRepository) SetMemberDomains(_ context.Context, projectID, m
 	return adaptererr.ErrNotFound
 }
 
-func (f *fakeProjectRepository) SetDomainsForMember(_ context.Context, memberID uuid.UUID, domains []string) error {
+func (f *fakeProjectRepository) SetDomainsForMemberInOrg(
+	_ context.Context,
+	_ uuid.UUID,
+	memberID uuid.UUID,
+	domains []string,
+) error {
 	if f.setDomainsErr != nil {
 		return f.setDomainsErr
 	}
@@ -870,25 +875,4 @@ func (f *fakeProviderLookup) ForMember(_ context.Context, _, _ uuid.UUID) (servi
 	}
 
 	return f.provider, nil
-}
-
-// ---- fakeLedgerWriter ------------------------------------------------------
-
-// fakeLedgerWriter is a configurable fake for the ledgerWriter port: it
-// records every ProviderMessage passed to Upsert so a test can assert on
-// exactly what the handler recorded (or that nothing was, e.g. a pool ask,
-// which never reaches recordDirectDelivery).
-type fakeLedgerWriter struct {
-	written   []model.ProviderMessage
-	upsertErr error
-}
-
-func (f *fakeLedgerWriter) Upsert(_ context.Context, msg model.ProviderMessage) error {
-	if f.upsertErr != nil {
-		return f.upsertErr
-	}
-
-	f.written = append(f.written, msg)
-
-	return nil
 }

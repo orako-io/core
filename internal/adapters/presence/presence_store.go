@@ -69,3 +69,28 @@ func (s *Store) ReadOnline(ctx context.Context, memberID uuid.UUID) (bool, error
 
 	return presence.OnlineNow(), nil
 }
+
+// ReadOnlineByMembers returns the fresh online state for the supplied members.
+// Members without a presence row are omitted and therefore offline.
+func (s *Store) ReadOnlineByMembers(ctx context.Context, memberIDs []uuid.UUID) (map[uuid.UUID]bool, error) {
+	if len(memberIDs) == 0 {
+		return map[uuid.UUID]bool{}, nil
+	}
+
+	rows, err := New(postgres.Conn(ctx, s.pool)).presenceByMembers(ctx, memberIDs)
+	if err != nil {
+		return nil, fmt.Errorf("fetching presence by members: %w", adaptererr.Decode(err))
+	}
+
+	online := make(map[uuid.UUID]bool, len(rows))
+	for _, row := range rows {
+		presence := model.Presence{
+			MemberID:  row.MemberID,
+			Online:    row.Online,
+			UpdatedAt: row.UpdatedAt,
+		}
+		online[row.MemberID] = presence.OnlineNow()
+	}
+
+	return online, nil
+}

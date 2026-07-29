@@ -76,7 +76,7 @@ func (s *Server) serveAuthCodeGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	access, refresh, err := mintTokenPair(r.Context(), s.store, s.now(), ac.MemberID, ac.ClientID, ac.Resource, ac.ProjectIDs, uuid.New())
+	access, refresh, err := mintTokenPair(r.Context(), s.store, s.now(), ac.OrgID, ac.MemberID, ac.ClientID, ac.Resource, ac.ProjectIDs, uuid.New())
 	if err != nil {
 		writeOAuthError(w, http.StatusInternalServerError, "server_error", "could not issue tokens")
 
@@ -172,6 +172,7 @@ type generatedTokenPair struct {
 
 func generateTokenPair(
 	now time.Time,
+	orgID uuid.UUID,
 	memberID uuid.UUID,
 	clientID string,
 	resource string,
@@ -193,6 +194,7 @@ func generateTokenPair(
 		accessHash:   accessHash,
 		accessToken: Token{
 			ID:         uuid.New(),
+			OrgID:      orgID,
 			MemberID:   memberID,
 			ClientID:   clientID,
 			Resource:   resource,
@@ -205,6 +207,7 @@ func generateTokenPair(
 		refreshHash:   refreshHash,
 		refreshToken: Token{
 			ID:         uuid.New(),
+			OrgID:      orgID,
 			MemberID:   memberID,
 			ClientID:   clientID,
 			Resource:   resource,
@@ -219,8 +222,8 @@ func generateTokenPair(
 // mintTokenPair generates and persists a fresh access+refresh pair sharing
 // grantID, returning the raw secrets — the only time either is available in
 // the clear.
-func mintTokenPair(ctx context.Context, store *Store, now time.Time, memberID uuid.UUID, clientID, resource string, projectIDs []uuid.UUID, grantID uuid.UUID) (access, refresh string, err error) {
-	pair, err := generateTokenPair(now, memberID, clientID, resource, projectIDs, grantID)
+func mintTokenPair(ctx context.Context, store *Store, now time.Time, orgID, memberID uuid.UUID, clientID, resource string, projectIDs []uuid.UUID, grantID uuid.UUID) (access, refresh string, err error) {
+	pair, err := generateTokenPair(now, orgID, memberID, clientID, resource, projectIDs, grantID)
 	if err != nil {
 		return "", "", err
 	}
@@ -246,6 +249,7 @@ func mintRotatedTokenPair(
 ) (access, refresh string, claimed bool, err error) {
 	pair, err := generateTokenPair(
 		now,
+		presentedRefresh.OrgID,
 		presentedRefresh.MemberID,
 		presentedRefresh.ClientID,
 		presentedRefresh.Resource,
@@ -285,7 +289,7 @@ func mintRotatedTokenPair(
 // this package, in infra/api/machine_token_service.go — application code
 // never imports this transport package directly, only through that adapter's
 // narrow ports.
-func MintMachineToken(ctx context.Context, store *Store, now time.Time, memberID uuid.UUID, resource string, projectIDs []uuid.UUID, label string) (secret string, tok Token, err error) {
+func MintMachineToken(ctx context.Context, store *Store, now time.Time, orgID, memberID uuid.UUID, resource string, projectIDs []uuid.UUID, label string) (secret string, tok Token, err error) {
 	secret, hash, err := newOpaqueSecret(AccessTokenPrefix)
 	if err != nil {
 		return "", Token{}, fmt.Errorf("minting machine token: %w", err)
@@ -293,6 +297,7 @@ func MintMachineToken(ctx context.Context, store *Store, now time.Time, memberID
 
 	tok = Token{
 		ID:         uuid.New(),
+		OrgID:      orgID,
 		MemberID:   memberID,
 		ClientID:   MachineClientID,
 		Resource:   resource,

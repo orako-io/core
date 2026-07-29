@@ -119,6 +119,7 @@ type Querier interface {
 	// (the flag is per-member and server-side, so the dismissal survives reloads
 	// and follows the member across devices).
 	memberOnboardingDismissed(ctx context.Context, id uuid.UUID) (bool, error)
+	membersByIDs(ctx context.Context, dollar_1 []uuid.UUID) ([]membersByIDsRow, error)
 	// Remove a member from exactly one organization. Project memberships and org
 	// authority are deleted only for $5. The shared members row is terminalized and
 	// its chat bindings are freed only when no membership in another organization
@@ -147,11 +148,7 @@ type Querier interface {
 	revokeLiveOrgJoinTokens(ctx context.Context, orgID uuid.UUID) (int64, error)
 	// Sets (or clears) the bcrypt password hash for a local-auth account.
 	setAccountPassword(ctx context.Context, arg setAccountPasswordParams) error
-	// Self-serve expertise: replace a member's domains across ALL their project
-	// memberships in one statement. Scope is the member (not one project), so an
-	// onboarding member can set their own expertise without touching another
-	// membership. Returns the number of memberships updated.
-	setDomainsForMember(ctx context.Context, arg setDomainsForMemberParams) (int64, error)
+	setDomainsForMemberInOrg(ctx context.Context, arg setDomainsForMemberInOrgParams) (int64, error)
 	// Deactivate (off billing, not routable) or reactivate a member. Reversible.
 	// Never touches removed/purged rows.
 	setMemberActivation(ctx context.Context, arg setMemberActivationParams) (int64, error)

@@ -90,7 +90,7 @@ func TestUpdateMember_DashboardNeedsNoBinding(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if got.DeliveryChannel != model.DeliveryChannelDashboard {
+	if got.DeliveryChannel != string(model.DeliveryChannelDashboard) {
 		t.Errorf("channel = %q, want dashboard", got.DeliveryChannel)
 	}
 
@@ -135,7 +135,7 @@ func TestUpdateMember_SlackWithBindingSucceeds(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if got.DeliveryChannel != model.DeliveryChannelSlack || got.SlackUserID != "U123" {
+	if got.DeliveryChannel != string(model.DeliveryChannelSlack) || got.SlackUserID != "U123" {
 		t.Errorf("got channel=%q slack=%q", got.DeliveryChannel, got.SlackUserID)
 	}
 }
@@ -196,7 +196,7 @@ func TestUpdateMember_TeamsWithBindingSucceeds(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if got.DeliveryChannel != model.DeliveryChannelTeams || got.TeamsUserID != "AAD-OBJ-1" {
+	if got.DeliveryChannel != string(model.DeliveryChannelTeams) || got.TeamsUserID != "AAD-OBJ-1" {
 		t.Errorf("got channel=%q teams=%q", got.DeliveryChannel, got.TeamsUserID)
 	}
 }
@@ -476,7 +476,7 @@ func TestUpdateMember_EmptyChannelKeepsExisting(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if got.DeliveryChannel != model.DeliveryChannelSlack {
+	if got.DeliveryChannel != string(model.DeliveryChannelSlack) {
 		t.Errorf("channel changed unexpectedly to %q", got.DeliveryChannel)
 	}
 

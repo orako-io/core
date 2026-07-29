@@ -28,11 +28,12 @@ type fakeHistoryReader struct {
 	err           error
 }
 
-func (f *fakeHistoryReader) SearchHistory(_ context.Context, orgID uuid.UUID, projectIDs []uuid.UUID, queryText string, tags []string, topK int) ([]HistoryHit, error) {
+func (f *fakeHistoryReader) SearchHistory(_ context.Context, orgID uuid.UUID, projectIDs []uuid.UUID, queryText string, tags []string, status string, topK int) ([]HistoryHit, error) {
 	f.gotOrgID = orgID
 	f.gotProjectIDs = projectIDs
 	f.gotQuery = queryText
 	f.gotTags = tags
+	f.gotStatus = status
 	f.gotTopK = topK
 
 	return f.hits, f.err

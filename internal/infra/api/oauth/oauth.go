@@ -77,6 +77,7 @@ func (c Client) HasRedirectURI(uri string) bool {
 // and the member who approved the consent screen.
 type AuthCode struct {
 	ID                  uuid.UUID
+	OrgID               uuid.UUID `exhaustruct:"optional"`
 	ClientID            string
 	RedirectURI         string
 	CodeChallenge       string
@@ -96,6 +97,7 @@ type AuthCode struct {
 // caller once, at mint time, and never stored.
 type Token struct {
 	ID       uuid.UUID
+	OrgID    uuid.UUID `exhaustruct:"optional"`
 	MemberID uuid.UUID
 	ClientID string
 	// Resource is the RFC 8707 audience this token is scoped to — the

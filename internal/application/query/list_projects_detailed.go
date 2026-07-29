@@ -26,14 +26,18 @@ type ListProjectsDetailedQuery struct {
 // ListProjectsDetailedHandler handles ListProjectsDetailedQuery.
 type ListProjectsDetailedHandler struct {
 	projects ProjectsDetailedReader
-	routing  service.ProviderAlertChannelsReader
+	routing  projectAlertChannelsReader
+}
+
+type projectAlertChannelsReader interface {
+	ConfiguredProvidersWithAlertChannels(ctx context.Context, projectIDs []uuid.UUID) (map[uuid.UUID][]service.ProviderAlertChannel, error)
 }
 
 // MustNewListProjectsDetailedHandler builds a handler. It panics on
 // nil dependencies.
 func MustNewListProjectsDetailedHandler(
 	projects ProjectsDetailedReader,
-	routing service.ProviderAlertChannelsReader,
+	routing projectAlertChannelsReader,
 ) ListProjectsDetailedHandler {
 	if projects == nil {
 		panic("ListProjectsDetailedHandler requires a non-nil ProjectsDetailedReader")
@@ -56,12 +60,17 @@ func (h ListProjectsDetailedHandler) Handle(ctx context.Context, q ListProjectsD
 
 	details := make([]ProjectDetail, len(rows))
 
-	for i, r := range rows {
-		channels, err := h.routing.ConfiguredProvidersWithAlertChannel(ctx, r.ID)
-		if err != nil {
-			return nil, errs.InternalError{Err: fmt.Errorf("listing provider alert channels for %s: %w", r.ID, err)}
-		}
+	projectIDs := make([]uuid.UUID, len(rows))
+	for i, row := range rows {
+		projectIDs[i] = row.ID
+	}
 
+	routing, err := h.routing.ConfiguredProvidersWithAlertChannels(ctx, projectIDs)
+	if err != nil {
+		return nil, errs.InternalError{Err: fmt.Errorf("listing provider alert channels: %w", err)}
+	}
+
+	for i, r := range rows {
 		details[i] = ProjectDetail{
 			ID:                r.ID,
 			Name:              r.Name,
@@ -69,7 +78,7 @@ func (h ListProjectsDetailedHandler) Handle(ctx context.Context, q ListProjectsD
 			MemberCount:       r.MemberCount,
 			ConversationCount: r.ConversationCount,
 			ResolvedCount:     r.ResolvedCount,
-			Routing:           channels,
+			Routing:           routing[r.ID],
 		}
 	}
 

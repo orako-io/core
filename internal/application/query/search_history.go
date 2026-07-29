@@ -96,8 +96,7 @@ type SearchHistoryQuery struct {
 	TopK int `exhaustruct:"optional"`
 	// Status, when set to a concrete conversation status ("open", "answered",
 	// "resolved", "timed_out", "dismissed"), filters the returned hits to that
-	// status. Empty or "all" applies no filter. Optional; the search engine
-	// itself is status-blind, so the handler applies this after fetching.
+	// status. Empty or "all" applies no filter.
 	Status string `exhaustruct:"optional"`
 	// Browse requests the recent-conversations fallback (dashboard History tab):
 	// when set and both Query and Tags are empty, the handler lists the most
@@ -118,11 +117,11 @@ type SearchHistoryQuery struct {
 // reranker, or pgvector — the whole point of P3.
 type HistoryReader interface {
 	// SearchHistory returns the top-k conversations matching the query across
-	// projectIDs, ALL statuses, ranked by a single server-side deterministic
+	// projectIDs, optionally narrowed to status, ranked by a single server-side deterministic
 	// ordering (FTS rank + facet-overlap boost + recency). An empty projectIDs
 	// falls back to every non-archived project in orgID; archived projects are
 	// always excluded.
-	SearchHistory(ctx context.Context, orgID uuid.UUID, projectIDs []uuid.UUID, queryText string, tags []string, topK int) ([]HistoryHit, error)
+	SearchHistory(ctx context.Context, orgID uuid.UUID, projectIDs []uuid.UUID, queryText string, tags []string, status string, topK int) ([]HistoryHit, error)
 	// RecentHistory returns up to topK most-recent conversations in the same
 	// org/project scope as SearchHistory (archived projects excluded), newest
 	// first, optionally narrowed to a single status. It backs the History tab's
@@ -213,7 +212,7 @@ func (h SearchHistoryHandler) Handle(ctx context.Context, q SearchHistoryQuery) 
 		return withAgeDays(hits), nil
 	}
 
-	hits, err = h.reader.SearchHistory(ctx, q.OrgID, q.ProjectIDs, q.Query, q.Tags, topK)
+	hits, err = h.reader.SearchHistory(ctx, q.OrgID, q.ProjectIDs, q.Query, q.Tags, status, topK)
 	if err != nil {
 		return nil, errs.InternalError{Err: fmt.Errorf("searching history: %w", err)}
 	}
@@ -230,11 +229,8 @@ func (h SearchHistoryHandler) Handle(ctx context.Context, q SearchHistoryQuery) 
 		hits = mergeRankedHits(hits, curated, topK)
 	}
 
-	// The search engine is status-blind by design, so a status facet is applied
-	// after ranking. The KPI/facet counts come from HistoryStatusCounts (exact),
-	// so this only trims the visible card list. Curated hits are always
-	// "resolved", so a status filter simply excludes them unless resolved is
-	// requested — the desired behavior for a conversation-status facet.
+	// Organic hits are filtered before LIMIT in SQL. This final filter only
+	// applies the same facet to curated hits merged above.
 	if status != "" {
 		hits = filterByStatus(hits, status)
 	}

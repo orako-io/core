@@ -81,13 +81,6 @@ func (h CreateProjectHandler) Handle(ctx context.Context, cmd CreateProjectComma
 		return CreateProjectResult{}, errs.InvalidError{Field: "creator_member_id", Reason: reasonNilUUID}
 	}
 
-	// Community-edition project cap (nil gate = no enforcement).
-	if h.gate != nil {
-		if err := h.gate.AllowNewProject(ctx, cmd.OrgID); err != nil {
-			return CreateProjectResult{}, err
-		}
-	}
-
 	id := uuid.New()
 
 	project, err := model.NewProjectInOrg(id, cmd.Name, cmd.OrgID)
@@ -109,6 +102,12 @@ func (h CreateProjectHandler) Handle(ctx context.Context, cmd CreateProjectComma
 // ProjectAtomicStore adapter.
 func (h CreateProjectHandler) provision(ctx context.Context, project model.Project, creatorMemberID uuid.UUID) error {
 	return h.txor.WithTx(ctx, func(ctx context.Context) error {
+		if h.gate != nil {
+			if err := h.gate.AllowNewProject(ctx, project.OrgID); err != nil {
+				return err
+			}
+		}
+
 		if err := h.projects.CreateInOrg(ctx, project); err != nil {
 			return err
 		}

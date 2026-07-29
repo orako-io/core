@@ -11,6 +11,7 @@ import (
 
 	adaptererr "github.com/orako-io/core/internal/adapters/errors"
 	"github.com/orako-io/core/internal/application/domain/model"
+	"github.com/orako-io/core/internal/application/service"
 	"github.com/orako-io/core/internal/pkg/auth"
 )
 
@@ -30,6 +31,7 @@ type accountSeedStore interface {
 func SeedAdmin(
 	ctx context.Context,
 	accounts accountSeedStore,
+	txor service.Transactor,
 	createOrg func(ctx context.Context, orgName string, ownerAccountID uuid.UUID) error,
 	email, password string,
 ) (created bool, err error) {
@@ -62,16 +64,26 @@ func SeedAdmin(
 		return false, fmt.Errorf("seed admin: building account: %w", err)
 	}
 
-	if err := accounts.Create(ctx, account); err != nil {
-		return false, fmt.Errorf("seed admin: creating account: %w", err)
+	if txor == nil {
+		return false, errors.New("seed admin: transactor is required")
 	}
 
-	if err := accounts.SetPassword(ctx, id, hash); err != nil {
-		return false, fmt.Errorf("seed admin: setting password: %w", err)
-	}
+	if err := txor.WithTx(ctx, func(ctx context.Context) error {
+		if err := accounts.Create(ctx, account); err != nil {
+			return fmt.Errorf("creating account: %w", err)
+		}
 
-	if err := createOrg(ctx, "My Organization", id); err != nil {
-		return false, fmt.Errorf("seed admin: creating organization: %w", err)
+		if err := accounts.SetPassword(ctx, id, hash); err != nil {
+			return fmt.Errorf("setting password: %w", err)
+		}
+
+		if err := createOrg(ctx, "My Organization", id); err != nil {
+			return fmt.Errorf("creating organization: %w", err)
+		}
+
+		return nil
+	}); err != nil {
+		return false, fmt.Errorf("seed admin: %w", err)
 	}
 
 	return true, nil

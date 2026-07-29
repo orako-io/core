@@ -656,6 +656,66 @@ func (q *Queries) memberOnboardingDismissed(ctx context.Context, id uuid.UUID) (
 	return dismissed, err
 }
 
+const membersByIDs = `-- name: membersByIDs :many
+SELECT id, email, display_name, first_name, last_name, git_handle, slack_user_id, telegram_chat_id, delivery_channel, status, created_at, updated_at, teams_user_id, discord_user_id, binding_error
+FROM members
+WHERE id = ANY($1::uuid[])
+`
+
+type membersByIDsRow struct {
+	ID              uuid.UUID   `json:"id"`
+	Email           pgtype.Text `json:"email"`
+	DisplayName     pgtype.Text `json:"display_name"`
+	FirstName       string      `json:"first_name"`
+	LastName        string      `json:"last_name"`
+	GitHandle       string      `json:"git_handle"`
+	SlackUserID     string      `json:"slack_user_id"`
+	TelegramChatID  string      `json:"telegram_chat_id"`
+	DeliveryChannel string      `json:"delivery_channel"`
+	Status          string      `json:"status"`
+	CreatedAt       time.Time   `json:"created_at"`
+	UpdatedAt       time.Time   `json:"updated_at"`
+	TeamsUserID     string      `json:"teams_user_id"`
+	DiscordUserID   string      `json:"discord_user_id"`
+	BindingError    string      `json:"binding_error"`
+}
+
+func (q *Queries) membersByIDs(ctx context.Context, dollar_1 []uuid.UUID) ([]membersByIDsRow, error) {
+	rows, err := q.db.Query(ctx, membersByIDs, dollar_1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []membersByIDsRow{}
+	for rows.Next() {
+		var i membersByIDsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Email,
+			&i.DisplayName,
+			&i.FirstName,
+			&i.LastName,
+			&i.GitHandle,
+			&i.SlackUserID,
+			&i.TelegramChatID,
+			&i.DeliveryChannel,
+			&i.Status,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.TeamsUserID,
+			&i.DiscordUserID,
+			&i.BindingError,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const offboardMember = `-- name: offboardMember :execrows
 WITH target AS (
     SELECT

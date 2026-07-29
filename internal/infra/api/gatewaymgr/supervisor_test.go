@@ -80,14 +80,14 @@ func (f *fakeFactory) build(token string) (*fakeSession, error) {
 // gatewaymgr.NewSupervisor expects (an interface it cannot name from an
 // external test package, so this returns the *fakeSession as the concrete
 // type and relies on structural satisfaction of Open()/Close()).
-func (f *fakeFactory) asFactory() func(string) (gatewaymgr.TestSession, error) {
-	return func(token string) (gatewaymgr.TestSession, error) {
+func (f *fakeFactory) asFactory() func(string) (gatewaymgr.Session, error) {
+	return func(token string) (gatewaymgr.Session, error) {
 		return f.build(token)
 	}
 }
 
 func newSupervisor(f *fakeFactory) *gatewaymgr.Supervisor {
-	return gatewaymgr.NewSupervisorForTest(f.asFactory(), discardLogger())
+	return gatewaymgr.NewSupervisor(gatewaymgr.SessionFactory(f.asFactory()), discardLogger())
 }
 
 // TestSupervisor_EnsureSession_DedupesByToken proves two projects sharing the
@@ -302,7 +302,7 @@ func TestSupervisor_EnsureSession_SlowDialDoesNotBlockOtherTokens(t *testing.T) 
 
 	var once sync.Once
 
-	factory := func(token string) (gatewaymgr.TestSession, error) {
+	factory := func(token string) (gatewaymgr.Session, error) {
 		if token == "slow-token" {
 			once.Do(func() { close(dialing) })
 			<-gate
@@ -311,7 +311,7 @@ func TestSupervisor_EnsureSession_SlowDialDoesNotBlockOtherTokens(t *testing.T) 
 		return &fakeSession{}, nil
 	}
 
-	sup := gatewaymgr.NewSupervisorForTest(factory, discardLogger())
+	sup := gatewaymgr.NewSupervisor(gatewaymgr.SessionFactory(factory), discardLogger())
 
 	slowDone := make(chan error, 1)
 

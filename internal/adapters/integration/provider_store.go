@@ -157,7 +157,8 @@ func (s *ProjectProviderStore) DeleteProvider(ctx context.Context, projectID uui
 // the Teams webhook's bot_app_id lookup) must never be handed a different
 // kind's credentials picked by recency.
 func (s *ProjectProviderStore) LoadProvider(ctx context.Context, projectID uuid.UUID, kind string) (credentials []byte, err error) {
-	return loadCredential(ctx, s.pool, s.cipher,
+	return loadCredential(
+		ctx, s.pool, s.cipher,
 		`SELECT credentials FROM project_providers WHERE project_id = $1 AND kind = $2`,
 		fmt.Errorf("project %s kind %s: %w", projectID, kind, adaptererr.ErrNotFound),
 		projectID, kind,
@@ -246,6 +247,45 @@ func (s *ProjectProviderStore) ConfiguredProvidersWithAlertChannel(ctx context.C
 	}
 
 	return result, rows.Err()
+}
+
+// ConfiguredProvidersWithAlertChannels returns provider routing grouped by
+// project in one database round trip.
+func (s *ProjectProviderStore) ConfiguredProvidersWithAlertChannels(ctx context.Context, projectIDs []uuid.UUID) (map[uuid.UUID][]service.ProviderAlertChannel, error) {
+	result := make(map[uuid.UUID][]service.ProviderAlertChannel, len(projectIDs))
+	if len(projectIDs) == 0 {
+		return result, nil
+	}
+
+	rows, err := s.pool.Query(ctx, `
+		SELECT project_id, kind, alert_channel_ids
+		FROM project_providers
+		WHERE project_id = ANY($1::uuid[])
+		ORDER BY project_id, kind
+	`, projectIDs)
+	if err != nil {
+		return nil, fmt.Errorf("provider_store: listing provider routing by projects: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			projectID uuid.UUID
+			channel   service.ProviderAlertChannel
+		)
+
+		if err := rows.Scan(&projectID, &channel.Kind, &channel.AlertChannelIDs); err != nil {
+			return nil, fmt.Errorf("provider_store: scanning provider routing row: %w", err)
+		}
+
+		result[projectID] = append(result[projectID], channel)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("provider_store: reading provider routing rows: %w", err)
+	}
+
+	return result, nil
 }
 
 // LoadAllProviders returns all configured project providers; used at startup

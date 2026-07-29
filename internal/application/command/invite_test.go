@@ -49,7 +49,7 @@ func TestAcceptInvite_Valid_CreatesAccountWithPassword(t *testing.T) {
 
 	tok, _ := auth.MintInviteToken(secret, "new@example.com", time.Hour, time.Now())
 	acc := &fakeAccounts{}
-	h := NewAcceptInviteHandler(acc, secret)
+	h := NewAcceptInviteHandler(acc, fakeTransactor{}, secret)
 
 	if err := h.AcceptInvite(context.Background(), tok, "password123"); err != nil {
 		t.Fatalf("AcceptInvite: %v", err)
@@ -69,7 +69,7 @@ func TestAcceptInvite_Rejects(t *testing.T) {
 
 	// Bad token → ErrInvalidInvite, nothing created.
 	acc := &fakeAccounts{}
-	if err := NewAcceptInviteHandler(acc, secret).AcceptInvite(context.Background(), "garbage", "password123"); !errors.Is(err, ErrInvalidInvite) {
+	if err := NewAcceptInviteHandler(acc, fakeTransactor{}, secret).AcceptInvite(context.Background(), "garbage", "password123"); !errors.Is(err, ErrInvalidInvite) {
 		t.Errorf("bad token: got %v, want ErrInvalidInvite", err)
 	}
 
@@ -79,7 +79,7 @@ func TestAcceptInvite_Rejects(t *testing.T) {
 
 	// Short password → validation error, nothing created.
 	acc2 := &fakeAccounts{}
-	if err := NewAcceptInviteHandler(acc2, secret).AcceptInvite(context.Background(), tok, "short"); err == nil {
+	if err := NewAcceptInviteHandler(acc2, fakeTransactor{}, secret).AcceptInvite(context.Background(), tok, "short"); err == nil {
 		t.Error("short password must be rejected")
 	}
 
@@ -89,7 +89,7 @@ func TestAcceptInvite_Rejects(t *testing.T) {
 
 	// Already accepted (account exists) → ErrInvalidInvite, nothing created.
 	acc3 := &fakeAccounts{existing: true}
-	if err := NewAcceptInviteHandler(acc3, secret).AcceptInvite(context.Background(), tok, "password123"); !errors.Is(err, ErrInvalidInvite) {
+	if err := NewAcceptInviteHandler(acc3, fakeTransactor{}, secret).AcceptInvite(context.Background(), tok, "password123"); !errors.Is(err, ErrInvalidInvite) {
 		t.Errorf("already accepted: got %v, want ErrInvalidInvite", err)
 	}
 

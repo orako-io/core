@@ -22,7 +22,7 @@ func TestProjectStoreCreateAndByID(t *testing.T) {
 	pool := testsupport.RequirePostgres(t)
 	store := identity.NewProjectStore(pool)
 
-	project, err := model.NewProject(uuid.New(), "Orako MVP")
+	project, err := model.NewProjectInOrg(uuid.New(), "Orako MVP", uuid.New())
 	if err != nil {
 		t.Fatalf("NewProject: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestProjectStoreDuplicate(t *testing.T) {
 	pool := testsupport.RequirePostgres(t)
 	store := identity.NewProjectStore(pool)
 
-	project, _ := model.NewProject(uuid.New(), "Dup Project")
+	project, _ := model.NewProjectInOrg(uuid.New(), "Dup Project", uuid.New())
 
 	if err := store.Create(t.Context(), project); err != nil {
 		t.Fatalf("first Create: %v", err)
@@ -207,6 +207,51 @@ func TestProjectStoreSetMemberDomains(t *testing.T) {
 	}
 }
 
+func TestProjectStoreSetDomainsForMemberInOrg(t *testing.T) {
+	t.Parallel()
+
+	pool := testsupport.RequirePostgres(t)
+	store := identity.NewProjectStore(pool)
+	memberID := testsupport.SeedMember(t, pool)
+	orgA := testsupport.SeedOrganization(t, pool)
+	orgB := testsupport.SeedOrganization(t, pool)
+	projectA := testsupport.SeedProjectInOrg(t, pool, orgA)
+	projectB := testsupport.SeedProjectInOrg(t, pool, orgB)
+
+	for _, projectID := range []uuid.UUID{projectA, projectB} {
+		if err := store.AddMember(t.Context(), repository.ProjectMembership{
+			ProjectID: projectID,
+			MemberID:  memberID,
+			Role:      model.RoleUnspecified,
+			Domains:   []string{"old"},
+		}); err != nil {
+			t.Fatalf("AddMember(%s): %v", projectID, err)
+		}
+	}
+
+	if err := store.SetDomainsForMemberInOrg(t.Context(), orgA, memberID, []string{"new"}); err != nil {
+		t.Fatalf("SetDomainsForMemberInOrg: %v", err)
+	}
+
+	membersA, err := store.MembersByProject(t.Context(), projectA)
+	if err != nil {
+		t.Fatalf("MembersByProject(A): %v", err)
+	}
+
+	membersB, err := store.MembersByProject(t.Context(), projectB)
+	if err != nil {
+		t.Fatalf("MembersByProject(B): %v", err)
+	}
+
+	if got := membersA[0].Domains; len(got) != 1 || got[0] != "new" {
+		t.Fatalf("org A domains = %v, want [new]", got)
+	}
+
+	if got := membersB[0].Domains; len(got) != 1 || got[0] != "old" {
+		t.Fatalf("org B domains = %v, want [old]", got)
+	}
+}
+
 // TestProjectStoreRename proves Rename persists the new name and returns
 // ErrNotFound for an absent project.
 func TestProjectStoreRename(t *testing.T) {
@@ -308,7 +353,8 @@ func TestProjectStoreDelete(t *testing.T) {
 
 	convID := uuid.New()
 
-	if _, err := pool.Exec(t.Context(),
+	if _, err := pool.Exec(
+		t.Context(),
 		`INSERT INTO conversations (id, project_id, asker_member_id, status, question)
 		 VALUES ($1, $2, $3, 'open', 'q?')`,
 		convID, projectID, memberID,
@@ -316,7 +362,8 @@ func TestProjectStoreDelete(t *testing.T) {
 		t.Fatalf("seeding conversation: %v", err)
 	}
 
-	if _, err := pool.Exec(t.Context(),
+	if _, err := pool.Exec(
+		t.Context(),
 		`INSERT INTO messages (id, conversation_id, author_member_id, role, body)
 		 VALUES ($1, $2, $3, 'question', 'q?')`,
 		uuid.New(), convID, memberID,
@@ -324,7 +371,8 @@ func TestProjectStoreDelete(t *testing.T) {
 		t.Fatalf("seeding message: %v", err)
 	}
 
-	if _, err := pool.Exec(t.Context(),
+	if _, err := pool.Exec(
+		t.Context(),
 		`INSERT INTO project_providers (id, project_id, kind, credentials, alert_channel_ids)
 		 VALUES ($1, $2, 'slack', '{}'::jsonb, '{}')`,
 		uuid.New(), projectID,
@@ -352,7 +400,8 @@ func TestProjectStoreDelete(t *testing.T) {
 		}
 
 		var count int
-		if err := pool.QueryRow(t.Context(),
+		if err := pool.QueryRow(
+			t.Context(),
 			"SELECT count(*) FROM "+table+" WHERE "+col+" = $1", id,
 		).Scan(&count); err != nil {
 			t.Fatalf("counting %s: %v", table, err)
@@ -394,7 +443,8 @@ func TestProjectStoreProjectsDetailedByOrg(t *testing.T) {
 		}
 	}
 
-	if _, err := pool.Exec(t.Context(),
+	if _, err := pool.Exec(
+		t.Context(),
 		`INSERT INTO conversations (id, project_id, asker_member_id, status, question)
 		 VALUES ($1, $2, $3, 'open', 'q?')`,
 		uuid.New(), projectA, memberA1,
@@ -404,7 +454,8 @@ func TestProjectStoreProjectsDetailedByOrg(t *testing.T) {
 
 	// Seed a RESOLVED conversation so resolved_count (COUNT FILTER status =
 	// 'resolved') is exercised alongside the total conversation_count.
-	if _, err := pool.Exec(t.Context(),
+	if _, err := pool.Exec(
+		t.Context(),
 		`INSERT INTO conversations (id, project_id, asker_member_id, status, question)
 		 VALUES ($1, $2, $3, 'resolved', 'answered?')`,
 		uuid.New(), projectA, memberA1,
@@ -478,7 +529,8 @@ func TestProjectMembersSchemaAfterMigration(t *testing.T) {
 
 	// role column must no longer exist.
 	var roleCols int
-	if err := pool.QueryRow(t.Context(),
+	if err := pool.QueryRow(
+		t.Context(),
 		`SELECT count(*) FROM information_schema.columns
 		 WHERE table_name = 'project_members' AND column_name = 'role'`,
 	).Scan(&roleCols); err != nil {

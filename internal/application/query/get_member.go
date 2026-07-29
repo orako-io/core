@@ -29,8 +29,12 @@ func MustNewGetMemberHandler(reader MemberReader) GetMemberHandler {
 	return GetMemberHandler{reader: reader}
 }
 
-// Handle returns the member's own contact settings as a MemberView. Returns the
-// adapter's not-found error when the member does not exist.
+// Handle returns the member's own contact settings as a MemberView.
 func (h GetMemberHandler) Handle(ctx context.Context, q GetMemberQuery) (MemberView, error) {
-	return h.reader.ReadMember(ctx, q.MemberID)
+	member, err := h.reader.ReadMember(ctx, q.MemberID)
+	if err != nil {
+		return MemberView{}, translateReadError(err, "member")
+	}
+
+	return member, nil
 }

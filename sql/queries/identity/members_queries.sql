@@ -16,6 +16,11 @@ SELECT id, email, display_name, first_name, last_name, git_handle, slack_user_id
 FROM members
 WHERE id = $1;
 
+-- name: membersByIDs :many
+SELECT id, email, display_name, first_name, last_name, git_handle, slack_user_id, telegram_chat_id, delivery_channel, status, created_at, updated_at, teams_user_id, discord_user_id, binding_error
+FROM members
+WHERE id = ANY($1::uuid[]);
+
 -- name: memberByEmail :one
 SELECT id, email, display_name, first_name, last_name, git_handle, slack_user_id, telegram_chat_id, delivery_channel, status, created_at, updated_at, teams_user_id, discord_user_id, binding_error
 FROM members

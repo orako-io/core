@@ -48,7 +48,7 @@ func MustNewListMembersHandler(reader OrgMemberReader) ListMembersHandler {
 func (h ListMembersHandler) Handle(ctx context.Context, q ListMembersQuery) ([]OrgMemberView, error) {
 	roster, err := h.reader.ListOrgMembers(ctx, q.OrgID)
 	if err != nil {
-		return nil, err
+		return nil, translateReadError(err, "members")
 	}
 
 	if !q.IncludePending {
@@ -57,7 +57,7 @@ func (h ListMembersHandler) Handle(ctx context.Context, q ListMembersQuery) ([]O
 
 	pending, err := h.reader.ListPendingOrgMembers(ctx, q.OrgID)
 	if err != nil {
-		return nil, err
+		return nil, translateReadError(err, "members")
 	}
 
 	return append(roster, pending...), nil

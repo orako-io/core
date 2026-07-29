@@ -54,7 +54,7 @@ func MustNewListOrganizationsHandler(reader organizationsByMemberReader) ListOrg
 func (h ListOrganizationsHandler) Handle(ctx context.Context, q ListOrganizationsQuery) ([]OrganizationView, error) {
 	orgs, err := h.listOrgs(ctx, q)
 	if err != nil {
-		return nil, err
+		return nil, translateReadError(err, "organizations")
 	}
 
 	views := make([]OrganizationView, len(orgs))

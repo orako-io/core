@@ -89,7 +89,7 @@ func TestSearchHistoryAllStatusesAndScope(t *testing.T) {
 		model.ConversationStatusOpen, []string{"authservice"}, nil)
 
 	// Scoped to project A: exactly the five statuses, project B excluded.
-	hits, err := store.SearchHistory(t.Context(), orgID, []uuid.UUID{projA}, token, nil, 50)
+	hits, err := store.SearchHistory(t.Context(), orgID, []uuid.UUID{projA}, token, nil, "", 50)
 	if err != nil {
 		t.Fatalf("SearchHistory(projA): %v", err)
 	}
@@ -110,7 +110,7 @@ func TestSearchHistoryAllStatusesAndScope(t *testing.T) {
 	}
 
 	// Org-wide read (empty projectIDs): project B's conversation now appears.
-	orgHits, err := store.SearchHistory(t.Context(), orgID, nil, token, nil, 50)
+	orgHits, err := store.SearchHistory(t.Context(), orgID, nil, token, nil, "", 50)
 	if err != nil {
 		t.Fatalf("SearchHistory(org-wide): %v", err)
 	}
@@ -126,7 +126,7 @@ func TestSearchHistoryAllStatusesAndScope(t *testing.T) {
 
 	// pg_trgm fuzzy arm: a mistyped tag ("authservce") still hits via the
 	// search_labels trigram similarity, with no lexical FTS match on the typo.
-	fuzzy, err := store.SearchHistory(t.Context(), orgID, []uuid.UUID{projA}, "authservce", nil, 50)
+	fuzzy, err := store.SearchHistory(t.Context(), orgID, []uuid.UUID{projA}, "authservce", nil, "", 50)
 	if err != nil {
 		t.Fatalf("SearchHistory(fuzzy): %v", err)
 	}
@@ -136,12 +136,63 @@ func TestSearchHistoryAllStatusesAndScope(t *testing.T) {
 	}
 
 	// Explicit tag param: a query with no free text but a named tag still hits.
-	byTag, err := store.SearchHistory(t.Context(), orgID, []uuid.UUID{projA}, "", []string{"authservice"}, 50)
+	byTag, err := store.SearchHistory(t.Context(), orgID, []uuid.UUID{projA}, "", []string{"authservice"}, "", 50)
 	if err != nil {
 		t.Fatalf("SearchHistory(byTag): %v", err)
 	}
 
 	if len(byTag) < len(statuses) {
 		t.Errorf("tag-overlap arm: got %d hits, want >= %d", len(byTag), len(statuses))
+	}
+}
+
+func TestSearchHistoryFiltersStatusBeforeLimit(t *testing.T) {
+	t.Parallel()
+
+	pool := testsupport.RequirePostgres(t)
+	store := conversation.NewStore(pool)
+	orgID := testsupport.SeedOrganization(t, pool)
+	projectID := testsupport.SeedProjectInOrg(t, pool, orgID)
+	askerID := testsupport.SeedMember(t, pool)
+	token := "zqxstatus" + uuid.NewString()[:8]
+
+	answeredID := seedConvWithMeta(
+		t,
+		store,
+		projectID,
+		askerID,
+		token+" answered",
+		token,
+		model.ConversationStatusAnswered,
+		nil,
+		nil,
+	)
+	seedConvWithMeta(
+		t,
+		store,
+		projectID,
+		askerID,
+		token+" open",
+		token,
+		model.ConversationStatusOpen,
+		nil,
+		nil,
+	)
+
+	hits, err := store.SearchHistory(
+		t.Context(),
+		orgID,
+		[]uuid.UUID{projectID},
+		token,
+		nil,
+		string(model.ConversationStatusAnswered),
+		1,
+	)
+	if err != nil {
+		t.Fatalf("SearchHistory: %v", err)
+	}
+
+	if len(hits) != 1 || hits[0].ConversationID != answeredID {
+		t.Fatalf("hits = %+v, want only answered conversation %s", hits, answeredID)
 	}
 }

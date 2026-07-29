@@ -87,7 +87,7 @@ func TestCoreLoopEndToEnd(t *testing.T) {
 	// does not set up.
 	projectID := uuid.New()
 
-	proj, err := model.NewProject(projectID, "e2e-test-project")
+	proj, err := model.NewProjectInOrg(projectID, "e2e-test-project", uuid.New())
 	if err != nil {
 		t.Fatalf("NewProject: %v", err)
 	}
@@ -285,7 +285,7 @@ func TestExpertiseTagsEndToEnd(t *testing.T) {
 
 	projectID := uuid.New()
 
-	proj, err := model.NewProject(projectID, "expertise-tags-project")
+	proj, err := model.NewProjectInOrg(projectID, "expertise-tags-project", uuid.New())
 	if err != nil {
 		t.Fatalf("NewProject: %v", err)
 	}

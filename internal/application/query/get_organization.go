@@ -42,5 +42,10 @@ func MustNewGetOrganizationHandler(reader organizationReader) GetOrganizationHan
 
 // Handle returns the caller's organization identity (id + name).
 func (h GetOrganizationHandler) Handle(ctx context.Context, q GetOrganizationQuery) (OrgIdentityView, error) {
-	return h.reader.ReadOrgIdentity(ctx, q.OrgID)
+	org, err := h.reader.ReadOrgIdentity(ctx, q.OrgID)
+	if err != nil {
+		return OrgIdentityView{}, translateReadError(err, "organization")
+	}
+
+	return org, nil
 }

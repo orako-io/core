@@ -42,7 +42,7 @@ func MustNewListProjectsHandler(reader ProjectsByMemberReader) ListProjectsHandl
 func (h ListProjectsHandler) Handle(ctx context.Context, q ListProjectsQuery) ([]ProjectSummary, error) {
 	projects, err := h.reader.ProjectsByMember(ctx, q.CallerMemberID)
 	if err != nil {
-		return nil, err
+		return nil, translateReadError(err, "projects")
 	}
 
 	summaries := make([]ProjectSummary, 0, len(projects))

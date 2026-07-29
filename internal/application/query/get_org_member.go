@@ -31,5 +31,10 @@ func MustNewGetOrgMemberHandler(reader OrgMemberReader) GetOrgMemberHandler {
 // Handle returns the member, or the adapter's not-found error when the member is
 // not part of the caller's org.
 func (h GetOrgMemberHandler) Handle(ctx context.Context, q GetOrgMemberQuery) (OrgMemberView, error) {
-	return h.reader.OrgMemberByID(ctx, q.OrgID, q.MemberID)
+	member, err := h.reader.OrgMemberByID(ctx, q.OrgID, q.MemberID)
+	if err != nil {
+		return OrgMemberView{}, translateReadError(err, "member")
+	}
+
+	return member, nil
 }

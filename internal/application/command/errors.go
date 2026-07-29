@@ -2,11 +2,8 @@
 
 // Package command declares the CQRS write-side handlers.
 //
-// Each handler owns exactly one use case. Handlers validate inputs by
-// delegating to domain constructors, call repository or event-store ports, and
-// translate adapter sentinel errors to typed errs.* values before returning.
-// No domain models leak outward; callers receive only error values (or a UUID
-// when the command creates a new entity).
+// Each handler owns one write-side use case and translates adapter errors into
+// application errors before returning.
 package command
 
 import (
@@ -16,20 +13,12 @@ import (
 	"github.com/orako-io/core/internal/pkg/errs"
 )
 
-// Shared validation strings, hoisted to constants so goconst does not flag
-// their repeated use across the command handlers.
 const (
-	reasonNilUUID = "must not be the nil UUID"
-	// reasonEmpty is the shared "value is blank" rejection reason.
-	reasonEmpty = "must not be empty"
-	fieldOrgID  = "org_id"
-	// fieldConversationID names the shared validation field for the
-	// conversation commands.
+	reasonNilUUID       = "must not be the nil UUID"
+	reasonEmpty         = "must not be empty"
+	fieldOrgID          = "org_id"
 	fieldConversationID = "conversation_id"
-	// fieldMemberID names the shared validation field for a targeted member.
-	fieldMemberID = "member_id"
-	// reasonNoOrgResolved is the shared org_id rejection reason across every
-	// org-scoped command whose caller has no resolved organization.
+	fieldMemberID       = "member_id"
 	reasonNoOrgResolved = "no organization resolved for the caller"
 )
 

@@ -58,8 +58,8 @@ func NewMachineTokenGateway(store *oauth.Store, resource string) *MachineTokenGa
 }
 
 // MintMachineToken satisfies command's machineTokenMinter port.
-func (g *MachineTokenGateway) MintMachineToken(ctx context.Context, memberID uuid.UUID, projectIDs []uuid.UUID, label string) (command.MintedMachineToken, error) {
-	secret, tok, err := oauth.MintMachineToken(ctx, g.store, g.now(), memberID, g.resource, projectIDs, label)
+func (g *MachineTokenGateway) MintMachineToken(ctx context.Context, orgID, memberID uuid.UUID, projectIDs []uuid.UUID, label string) (command.MintedMachineToken, error) {
+	secret, tok, err := oauth.MintMachineToken(ctx, g.store, g.now(), orgID, memberID, g.resource, projectIDs, label)
 	if err != nil {
 		return command.MintedMachineToken{}, err
 	}
@@ -93,6 +93,11 @@ func (g *MachineTokenGateway) ListMachineTokens(ctx context.Context, orgID uuid.
 	}
 
 	return views, nil
+}
+
+// RevokeMachineToken revokes a token within its owning organization.
+func (g *MachineTokenGateway) RevokeMachineToken(ctx context.Context, orgID, tokenID uuid.UUID) error {
+	return g.store.RevokeMachineToken(ctx, orgID, tokenID)
 }
 
 // CreateMachineToken mints a durable, non-interactive access token for a

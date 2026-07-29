@@ -56,12 +56,7 @@ type ProjectRepository interface {
 	// pair is not enrolled. This is the set-expertise-tags write (repurposed from
 	// the retired role-assignment path).
 	SetMemberDomains(ctx context.Context, projectID, memberID uuid.UUID, domains []string) error
-	// SetDomainsForMember replaces a member's expertise tags across ALL their
-	// project memberships in one statement. Backs the self-serve onboarding path
-	// (a member sets their own expertise). Unlike SetMemberDomains it is scoped
-	// to the member, not one project, and does not error when the member has no
-	// memberships (zero rows updated is a no-op success).
-	SetDomainsForMember(ctx context.Context, memberID uuid.UUID, domains []string) error
+	SetDomainsForMemberInOrg(ctx context.Context, orgID, memberID uuid.UUID, domains []string) error
 	// MembersByProject lists all memberships for the given project, ordered by
 	// join time ascending.
 	MembersByProject(ctx context.Context, projectID uuid.UUID) ([]ProjectMembership, error)

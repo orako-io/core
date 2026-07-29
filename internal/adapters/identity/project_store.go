@@ -136,7 +136,8 @@ func (s *ProjectStore) ByID(ctx context.Context, id uuid.UUID) (model.Project, e
 // Rename updates the project's display name. Returns adaptererr.ErrNotFound
 // when no project with that ID exists.
 func (s *ProjectStore) Rename(ctx context.Context, id uuid.UUID, name string) error {
-	tag, err := s.pool.Exec(ctx,
+	tag, err := s.pool.Exec(
+		ctx,
 		`UPDATE projects SET name = $2, updated_at = NOW() WHERE id = $1`,
 		id, name,
 	)
@@ -156,7 +157,8 @@ func (s *ProjectStore) Rename(ctx context.Context, id uuid.UUID, name string) er
 // (archived_at = NULL). Returns adaptererr.ErrNotFound when no project with
 // that ID exists.
 func (s *ProjectStore) SetArchived(ctx context.Context, id uuid.UUID, archived bool) error {
-	tag, err := s.pool.Exec(ctx,
+	tag, err := s.pool.Exec(
+		ctx,
 		`UPDATE projects
 		 SET archived_at = CASE WHEN $2 THEN NOW() ELSE NULL END, updated_at = NOW()
 		 WHERE id = $1`,
@@ -312,21 +314,25 @@ func (s *ProjectStore) SetMemberDomains(ctx context.Context, projectID, memberID
 	return nil
 }
 
-// SetDomainsForMember replaces the member's expertise tags across ALL their
-// project memberships in one statement (self-serve onboarding). Zero rows
-// updated — the member belongs to no project — is a no-op success, not
-// ErrNotFound: setting expertise before joining anything is harmless.
-func (s *ProjectStore) SetDomainsForMember(ctx context.Context, memberID uuid.UUID, domains []string) error {
+// SetDomainsForMemberInOrg replaces the member's expertise tags on project
+// memberships belonging to one organization.
+func (s *ProjectStore) SetDomainsForMemberInOrg(ctx context.Context, orgID, memberID uuid.UUID, domains []string) error {
 	// A nil slice would encode as SQL NULL and violate TEXT[] NOT NULL.
 	if domains == nil {
 		domains = []string{}
 	}
 
-	if _, err := New(postgres.Conn(ctx, s.pool)).setDomainsForMember(ctx, setDomainsForMemberParams{
+	affected, err := New(postgres.Conn(ctx, s.pool)).setDomainsForMemberInOrg(ctx, setDomainsForMemberInOrgParams{
+		OrgID:    pgconv.UUIDOrNull(orgID),
 		MemberID: memberID,
 		Domains:  domains,
-	}); err != nil {
-		return fmt.Errorf("setting domains for member: %w", adaptererr.Decode(err))
+	})
+	if err != nil {
+		return fmt.Errorf("setting domains for member in organization: %w", adaptererr.Decode(err))
+	}
+
+	if affected == 0 {
+		return fmt.Errorf("setting domains for member in organization: %w", adaptererr.ErrNotFound)
 	}
 
 	return nil

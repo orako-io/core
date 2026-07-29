@@ -11,6 +11,7 @@ import (
 
 	adaptererr "github.com/orako-io/core/internal/adapters/errors"
 	"github.com/orako-io/core/internal/application/domain/model"
+	"github.com/orako-io/core/internal/application/service"
 	"github.com/orako-io/core/internal/pkg/auth"
 	"github.com/orako-io/core/internal/pkg/errs"
 )
@@ -30,12 +31,17 @@ var ErrInvalidInvite = errs.InvalidError{Field: "invite", Reason: "invalid or al
 // (the principal resolver's by-email fallback).
 type AcceptInviteHandler struct {
 	accounts accountSeedStore
+	txor     service.Transactor
 	secret   string
 }
 
 // NewAcceptInviteHandler builds the handler. secret must be ORAKO_AUTH_HS256_SECRET.
-func NewAcceptInviteHandler(accounts accountSeedStore, secret string) AcceptInviteHandler {
-	return AcceptInviteHandler{accounts: accounts, secret: secret}
+func NewAcceptInviteHandler(accounts accountSeedStore, txor service.Transactor, secret string) AcceptInviteHandler {
+	if accounts == nil || txor == nil {
+		panic("AcceptInviteHandler requires non-nil dependencies")
+	}
+
+	return AcceptInviteHandler{accounts: accounts, txor: txor, secret: secret}
 }
 
 // AcceptInvite verifies the invite token, then creates a local account with the
@@ -72,12 +78,18 @@ func (h AcceptInviteHandler) AcceptInvite(ctx context.Context, token, password s
 		return errs.InternalError{Err: fmt.Errorf("building account: %w", err)}
 	}
 
-	if err := h.accounts.Create(ctx, account); err != nil {
-		return errs.InternalError{Err: fmt.Errorf("creating account: %w", err)}
-	}
+	if err := h.txor.WithTx(ctx, func(ctx context.Context) error {
+		if err := h.accounts.Create(ctx, account); err != nil {
+			return fmt.Errorf("creating account: %w", err)
+		}
 
-	if err := h.accounts.SetPassword(ctx, id, hash); err != nil {
-		return errs.InternalError{Err: fmt.Errorf("setting password: %w", err)}
+		if err := h.accounts.SetPassword(ctx, id, hash); err != nil {
+			return fmt.Errorf("setting password: %w", err)
+		}
+
+		return nil
+	}); err != nil {
+		return errs.InternalError{Err: err}
 	}
 
 	return nil

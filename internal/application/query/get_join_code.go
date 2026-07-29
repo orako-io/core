@@ -57,7 +57,7 @@ func MustNewGetJoinCodeHandler(tokens activeJoinCodeReader, projects joinCodePro
 func (h GetJoinCodeHandler) Handle(ctx context.Context, q GetJoinCodeQuery) (JoinCodeView, error) {
 	token, ok, err := h.tokens.ActiveJoinToken(ctx, q.OrgID)
 	if err != nil {
-		return JoinCodeView{}, err
+		return JoinCodeView{}, translateReadError(err, "join_code")
 	}
 
 	if !ok {

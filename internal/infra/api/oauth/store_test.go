@@ -309,32 +309,37 @@ func TestStoreListGrantsByMember(t *testing.T) {
 	store := NewStore(pool)
 	memberID := seedMember(t, pool)
 	otherMemberID := seedMember(t, pool)
+	orgID := testsupport.SeedOrganization(t, pool)
+	otherOrgID := testsupport.SeedOrganization(t, pool)
 	client := seedClient(t, store)
 	resource := "https://orako.example.com/mcp"
 
 	// A live grant for memberID: scoped to two projects.
 	p1, p2 := uuid.New(), uuid.New()
 	liveGrant := uuid.New()
-	seedTokenPair(t, store, memberID, client.ID, resource, liveGrant, []uuid.UUID{p1, p2})
+	seedTokenPair(t, store, orgID, memberID, client.ID, resource, liveGrant, []uuid.UUID{p1, p2})
 
 	// A fully revoked grant for memberID must not appear.
 	deadGrant := uuid.New()
-	seedTokenPair(t, store, memberID, client.ID, resource, deadGrant, nil)
+	seedTokenPair(t, store, orgID, memberID, client.ID, resource, deadGrant, nil)
 	if err := store.RevokeGrant(t.Context(), deadGrant); err != nil {
 		t.Fatalf("RevokeGrant (dead grant setup): %v", err)
 	}
 
 	// A live grant belonging to a different member must not appear.
 	otherGrant := uuid.New()
-	seedTokenPair(t, store, otherMemberID, client.ID, resource, otherGrant, nil)
+	seedTokenPair(t, store, otherOrgID, otherMemberID, client.ID, resource, otherGrant, nil)
 
-	grants, err := store.ListGrantsByMember(t.Context(), memberID)
+	sameMemberOtherOrgGrant := uuid.New()
+	seedTokenPair(t, store, otherOrgID, memberID, client.ID, resource, sameMemberOtherOrgGrant, nil)
+
+	grants, err := store.ListGrantsByMember(t.Context(), orgID, memberID)
 	if err != nil {
 		t.Fatalf("ListGrantsByMember: %v", err)
 	}
 
 	if len(grants) != 1 {
-		t.Fatalf("ListGrantsByMember: got %d grants, want 1 (dead+other-member grants must be excluded): %+v", len(grants), grants)
+		t.Fatalf("ListGrantsByMember: got %d grants, want 1 (other org/member and dead grants must be excluded): %+v", len(grants), grants)
 	}
 
 	got := grants[0]
@@ -361,16 +366,16 @@ func TestStoreListGrantsByMember(t *testing.T) {
 // seedTokenPair mints and persists an access+refresh token pair sharing
 // grantID for memberID, returning their raw secrets. A nil projectIDs means
 // an unscoped grant.
-func seedTokenPair(t *testing.T, store *Store, memberID uuid.UUID, clientID, resource string, grantID uuid.UUID, projectIDs []uuid.UUID) (accessRaw, refreshRaw string) {
+func seedTokenPair(t *testing.T, store *Store, orgID, memberID uuid.UUID, clientID, resource string, grantID uuid.UUID, projectIDs []uuid.UUID) (accessRaw, refreshRaw string) {
 	t.Helper()
 
 	access := Token{
-		ID: uuid.New(), MemberID: memberID, ClientID: clientID, Resource: resource,
+		ID: uuid.New(), OrgID: orgID, MemberID: memberID, ClientID: clientID, Resource: resource,
 		Kind: TokenKindAccess, ProjectIDs: projectIDs, GrantID: grantID,
 		ExpiresAt: time.Now().Add(AccessTokenTTL),
 	}
 	refresh := Token{
-		ID: uuid.New(), MemberID: memberID, ClientID: clientID, Resource: resource,
+		ID: uuid.New(), OrgID: orgID, MemberID: memberID, ClientID: clientID, Resource: resource,
 		Kind: TokenKindRefresh, ProjectIDs: projectIDs, GrantID: grantID,
 		ExpiresAt: time.Now().Add(RefreshTokenTTL),
 	}
@@ -391,11 +396,12 @@ func TestStoreListGrantsByMemberLastUsed(t *testing.T) {
 	pool := testsupport.RequirePostgres(t)
 	store := NewStore(pool)
 	memberID := seedMember(t, pool)
+	orgID := testsupport.SeedOrganization(t, pool)
 	client := seedClient(t, store)
 	resource := "https://orako.example.com/mcp"
 	grantID := uuid.New()
 
-	accessRaw, _ := seedTokenPair(t, store, memberID, client.ID, resource, grantID, nil)
+	accessRaw, _ := seedTokenPair(t, store, orgID, memberID, client.ID, resource, grantID, nil)
 
 	access, err := store.GetToken(t.Context(), accessRaw, TokenKindAccess)
 	if err != nil {
@@ -406,7 +412,7 @@ func TestStoreListGrantsByMemberLastUsed(t *testing.T) {
 		t.Fatalf("TouchToken: %v", err)
 	}
 
-	grants, err := store.ListGrantsByMember(t.Context(), memberID)
+	grants, err := store.ListGrantsByMember(t.Context(), orgID, memberID)
 	if err != nil {
 		t.Fatalf("ListGrantsByMember: %v", err)
 	}
@@ -427,15 +433,21 @@ func TestStoreRevokeGrantForMember(t *testing.T) {
 	store := NewStore(pool)
 	memberID := seedMember(t, pool)
 	otherMemberID := seedMember(t, pool)
+	orgID := testsupport.SeedOrganization(t, pool)
+	otherOrgID := testsupport.SeedOrganization(t, pool)
 	client := seedClient(t, store)
 	resource := "https://orako.example.com/mcp"
 	grantID := uuid.New()
 
-	accessRaw, refreshRaw := seedTokenPair(t, store, memberID, client.ID, resource, grantID, nil)
+	accessRaw, refreshRaw := seedTokenPair(t, store, orgID, memberID, client.ID, resource, grantID, nil)
 
 	// SECURITY: another member must never be able to revoke this grant.
-	if err := store.RevokeGrantForMember(t.Context(), otherMemberID, grantID); !errors.Is(err, adaptererr.ErrNotFound) {
+	if err := store.RevokeGrantForMember(t.Context(), orgID, otherMemberID, grantID); !errors.Is(err, adaptererr.ErrNotFound) {
 		t.Fatalf("RevokeGrantForMember by wrong member: got %v, want ErrNotFound", err)
+	}
+
+	if err := store.RevokeGrantForMember(t.Context(), otherOrgID, memberID, grantID); !errors.Is(err, adaptererr.ErrNotFound) {
+		t.Fatalf("RevokeGrantForMember from wrong org: got %v, want ErrNotFound", err)
 	}
 
 	access, err := store.GetToken(t.Context(), accessRaw, TokenKindAccess)
@@ -446,7 +458,7 @@ func TestStoreRevokeGrantForMember(t *testing.T) {
 		t.Fatal("grant must still be live after a wrongly-scoped revoke attempt")
 	}
 
-	if err := store.RevokeGrantForMember(t.Context(), memberID, grantID); err != nil {
+	if err := store.RevokeGrantForMember(t.Context(), orgID, memberID, grantID); err != nil {
 		t.Fatalf("RevokeGrantForMember: %v", err)
 	}
 
@@ -467,12 +479,12 @@ func TestStoreRevokeGrantForMember(t *testing.T) {
 	}
 
 	// Revoking again (already revoked) must be not-found, not a silent no-op.
-	if err := store.RevokeGrantForMember(t.Context(), memberID, grantID); !errors.Is(err, adaptererr.ErrNotFound) {
+	if err := store.RevokeGrantForMember(t.Context(), orgID, memberID, grantID); !errors.Is(err, adaptererr.ErrNotFound) {
 		t.Fatalf("RevokeGrantForMember on an already-revoked grant: got %v, want ErrNotFound", err)
 	}
 
 	// The revoked grant must disappear from the member's live list.
-	grants, err := store.ListGrantsByMember(t.Context(), memberID)
+	grants, err := store.ListGrantsByMember(t.Context(), orgID, memberID)
 	if err != nil {
 		t.Fatalf("ListGrantsByMember: %v", err)
 	}
