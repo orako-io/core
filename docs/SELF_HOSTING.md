@@ -43,10 +43,12 @@ external IdP. The flow:
 
 ### What `bootstrap.sh` writes
 
-A `.env` (chmod 600) with a random `POSTGRES_PASSWORD` and `ORAKO_AUTH_HS256_SECRET`,
-`ORAKO_AUTH_MODE=local`, the seeded `ORAKO_ADMIN_EMAIL` / `ORAKO_ADMIN_PASSWORD`,
-commented SMTP placeholders, and your `ORAKO_BASE_URL`. **Never change
-`ORAKO_AUTH_HS256_SECRET` after first boot** — it invalidates every session.
+A `.env` (chmod 600) with random `POSTGRES_PASSWORD`, `ORAKO_AUTH_HS256_SECRET`,
+and `ORAKO_ENCRYPTION_KEY`, `ORAKO_AUTH_MODE=local`, the seeded
+`ORAKO_ADMIN_EMAIL` / `ORAKO_ADMIN_PASSWORD`, commented SMTP placeholders, and
+your `ORAKO_BASE_URL`. **Never change `ORAKO_AUTH_HS256_SECRET` or
+`ORAKO_ENCRYPTION_KEY` after first boot** — the former invalidates every session
+and the latter makes encrypted integration credentials unreadable.
 
 ### Updating
 

@@ -21,6 +21,7 @@
 #   POSTGRES_PASSWORD (required in prod — set in .env, never in this file)
 #   POSTGRES_DB       (default: orako)
 #   ORAKO_HTTP_PORT   (default: 8080)
+#   ORAKO_ENCRYPTION_KEY (required in prod — base64-encoded 32-byte key)
 #   ORAKO_SLACK_CLIENT_ID, ORAKO_SLACK_CLIENT_SECRET, ORAKO_SLACK_SIGNING_SECRET
 #   ORAKO_BASE_URL    (required for Slack OAuth redirect)
 #   (License key: set in the dashboard under Settings → License, stored in the DB —
@@ -74,6 +75,7 @@ services:
       ORAKO_SLACK_CLIENT_SECRET: ${ORAKO_SLACK_CLIENT_SECRET:-}
       ORAKO_SLACK_SIGNING_SECRET: ${ORAKO_SLACK_SIGNING_SECRET:-}
       ORAKO_BASE_URL: ${ORAKO_BASE_URL:-}
+      ORAKO_ENCRYPTION_KEY: ${ORAKO_ENCRYPTION_KEY:?ORAKO_ENCRYPTION_KEY is required}
 
       # Auth. Self-host uses the HS256 shared-secret mode; set both when a real
       # ORAKO_BASE_URL is configured (dev mode fails closed once deployed).
