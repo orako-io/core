@@ -25,6 +25,7 @@ import (
 	orakov1 "github.com/orako-io/core/gen/orako/v1"
 	"github.com/orako-io/core/gen/orako/v1/orakov1connect"
 	adaptererr "github.com/orako-io/core/internal/adapters/errors"
+	"github.com/orako-io/core/internal/application"
 	"github.com/orako-io/core/internal/application/command"
 	"github.com/orako-io/core/internal/application/domain/model"
 	"github.com/orako-io/core/internal/application/domain/repository"
@@ -123,7 +124,7 @@ type roleAssigner interface {
 }
 
 type ownExpertiseSetter interface {
-	Handle(ctx context.Context, memberID uuid.UUID, domains []string) error
+	Handle(ctx context.Context, cmd command.SetOwnExpertiseCommand) error
 }
 
 type memberRemover interface {
@@ -211,7 +212,7 @@ type memberGetter interface {
 }
 
 type memberUpdater interface {
-	Handle(ctx context.Context, cmd command.UpdateMemberCommand) (model.Member, error)
+	Handle(ctx context.Context, cmd command.UpdateMemberCommand) (command.UpdateMemberResult, error)
 }
 
 type membersLister interface {
@@ -257,14 +258,14 @@ type providerAlertChannelsGetter interface {
 // mcpConnectionLister resolves the caller's live MCP connections (one per
 // grant_id). Satisfied by *oauth.Store.
 type mcpConnectionLister interface {
-	ListGrantsByMember(ctx context.Context, memberID uuid.UUID) ([]oauth.Grant, error)
+	ListGrantsByMember(ctx context.Context, orgID, memberID uuid.UUID) ([]oauth.Grant, error)
 }
 
 // mcpConnectionRevoker disconnects one of the caller's MCP connections,
 // scoped to the caller so it can never revoke another member's grant.
 // Satisfied by *oauth.Store.
 type mcpConnectionRevoker interface {
-	RevokeGrantForMember(ctx context.Context, memberID, grantID uuid.UUID) error
+	RevokeGrantForMember(ctx context.Context, orgID, memberID, grantID uuid.UUID) error
 }
 
 type orgSettingsGetter interface {
@@ -304,8 +305,6 @@ type joinCodeRevoker interface {
 }
 
 // Server implements orakov1connect.OrakoServiceHandler.
-//
-//nolint:dupl // the struct's fields necessarily mirror NewServer's params; not real duplication.
 type Server struct {
 	listExperts              listExpertser
 	ask                      conversationAsker
@@ -374,143 +373,84 @@ type Server struct {
 	logger                   *slog.Logger
 }
 
-// NewServer constructs a Server from the given application handlers.
-// All handler fields must be non-nil; nil handlers panic at construction time.
-//
-//nolint:dupl,funlen // params necessarily mirror the Server struct fields; a single construction site is clearer than splitting it.
-func NewServer(
-	listExperts listExpertser,
-	ask conversationAsker,
-	getConversation getConversationer,
-	followUp followUpper,
-	resolveConversation resolveConversationer,
-	dismissConversation dismisser,
-	listProjects projectsLister,
-	renameProject projectRenamer,
-	setProjectArchived projectArchiveSetter,
-	deleteProject projectDeleter,
-	deleteConversation conversationDeleter,
-	listProjectsDetailed projectsDetailedLister,
-	listConversations conversationsLister,
-	searchHistory historySearcher,
-	historyCounts historyCounter,
-	listKnowledge knowledgeLister,
-	createKnowledge knowledgeCreator,
-	updateKnowledge knowledgeUpdater,
-	markKnowledgeStale knowledgeStaleMarker,
-	revalidateKnowledge knowledgeRevalidator,
-	listPendingKnowledge pendingKnowledgeLister,
-	approveKnowledge knowledgeApprover,
-	dismissKnowledge knowledgeDismisser,
-	promoteConversation conversationPromoter,
-	dashboardMetrics dashboardMetricser,
-	listInbox inboxLister,
-	getMember memberGetter,
-	updateMember memberUpdater,
-	listMembers membersLister,
-	getOrgMember orgMemberGetter,
-	setMemberAvailability memberAvailabilitySetter,
-	setMemberActivation memberActivationSetter,
-	setOrgAdmin orgAdminSetter,
-	listConnectedChannels connectedChannelsLister,
-	providerCredentials providerCredentialsLoader,
-	getProviderAlertChannels providerAlertChannelsGetter,
-	listMcpConnections mcpConnectionLister,
-	revokeMcpConnection mcpConnectionRevoker,
-	heartbeat heartbeater,
-	createOrganization organizationCreator,
-	createProject projectCreator,
-	addMember memberAdder,
-	inviteMembers membersInviter,
-	assignRole roleAssigner,
-	setOwnExpertise ownExpertiseSetter,
-	removeMember memberRemover,
-	configureProvider providerConfigurer,
-	syncChatBindings chatDirectorySyncer,
-	disconnectProvider providerDisconnecter,
-	sendProviderTest providerTester,
-	getOrgSettings orgSettingsGetter,
-	updateOrgSettings orgSettingsUpdater,
-	renameOrganization organizationRenamer,
-	deleteOrganization organizationDeleter,
-	getOrganization organizationGetter,
-	listOrganizations organizationsLister,
-	generateJoinCode joinCodeGenerator,
-	getJoinCode joinCodeGetter,
-	revokeJoinCode joinCodeRevoker,
-	createMachineToken machineTokenCreator,
-	listMachineTokens machineTokenViewLister,
-	revokeMachineToken machineTokenRevokerHandler,
-	projects projectOrgResolver,
-	convScope conversationScopeReader,
-	logger *slog.Logger,
-) *Server {
+// ServerDependencies contains transport-only dependencies outside CQRS.
+type ServerDependencies struct {
+	ProviderCredentials providerCredentialsLoader
+	ListMCPConnections  mcpConnectionLister
+	RevokeMCPConnection mcpConnectionRevoker
+	Projects            projectOrgResolver
+	ConversationScope   conversationScopeReader
+	Logger              *slog.Logger
+}
+
+// NewServer wires application handlers into the Connect-RPC adapter.
+func NewServer(commands application.Commands, queries application.Queries, deps ServerDependencies) *Server {
 	return &Server{
-		listExperts:              listExperts,
-		ask:                      ask,
-		getConversation:          getConversation,
-		followUp:                 followUp,
-		resolveConversation:      resolveConversation,
-		dismissConversation:      dismissConversation,
-		listProjects:             listProjects,
-		renameProject:            renameProject,
-		setProjectArchived:       setProjectArchived,
-		deleteProject:            deleteProject,
-		deleteConversation:       deleteConversation,
-		listProjectsDetailed:     listProjectsDetailed,
-		listConversations:        listConversations,
-		searchHistory:            searchHistory,
-		historyCounts:            historyCounts,
-		listKnowledge:            listKnowledge,
-		createKnowledge:          createKnowledge,
-		updateKnowledge:          updateKnowledge,
-		markKnowledgeStale:       markKnowledgeStale,
-		revalidateKnowledge:      revalidateKnowledge,
-		listPendingKnowledge:     listPendingKnowledge,
-		approveKnowledge:         approveKnowledge,
-		dismissKnowledge:         dismissKnowledge,
-		promoteConversation:      promoteConversation,
-		dashboardMetrics:         dashboardMetrics,
-		listInbox:                listInbox,
-		getMember:                getMember,
-		updateMember:             updateMember,
-		listMembers:              listMembers,
-		getOrgMember:             getOrgMember,
-		setMemberAvailability:    setMemberAvailability,
-		setMemberActivation:      setMemberActivation,
-		setOrgAdmin:              setOrgAdmin,
-		listConnectedChannels:    listConnectedChannels,
-		providerCredentials:      providerCredentials,
-		getProviderAlertChannels: getProviderAlertChannels,
-		listMcpConnections:       listMcpConnections,
-		revokeMcpConnection:      revokeMcpConnection,
-		heartbeat:                heartbeat,
-		createOrganization:       createOrganization,
-		createProject:            createProject,
-		addMember:                addMember,
-		inviteMembers:            inviteMembers,
-		assignRole:               assignRole,
-		setOwnExpertise:          setOwnExpertise,
-		removeMember:             removeMember,
-		configureProvider:        configureProvider,
-		syncChatBindings:         syncChatBindings,
-		disconnectProvider:       disconnectProvider,
-		sendProviderTest:         sendProviderTest,
-		getOrgSettings:           getOrgSettings,
-		updateOrgSettings:        updateOrgSettings,
-		renameOrganization:       renameOrganization,
-		deleteOrganization:       deleteOrganization,
-		getOrganization:          getOrganization,
-		listOrganizations:        listOrganizations,
-		generateJoinCode:         generateJoinCode,
-		getJoinCode:              getJoinCode,
-		revokeJoinCode:           revokeJoinCode,
-		createMachineToken:       createMachineToken,
-		listMachineTokens:        listMachineTokens,
-		revokeMachineToken:       revokeMachineToken,
-		projects:                 projects,
-		convScope:                convScope,
-		logger:                   logger,
+		listExperts:              queries.ListExperts,
+		ask:                      commands.Ask,
+		getConversation:          queries.GetConversation,
+		followUp:                 commands.FollowUp,
+		resolveConversation:      commands.ResolveConversation,
+		dismissConversation:      commands.DismissConversation,
+		listProjects:             queries.ListProjects,
+		renameProject:            commands.RenameProject,
+		setProjectArchived:       commands.SetProjectArchived,
+		deleteProject:            commands.DeleteProject,
+		deleteConversation:       commands.DeleteConversation,
+		listProjectsDetailed:     queries.ListProjectsDetailed,
+		listConversations:        queries.ListConversations,
+		searchHistory:            queries.SearchHistory,
+		historyCounts:            queries.HistoryStatusCounts,
+		listKnowledge:            queries.ListKnowledgeEntries,
+		createKnowledge:          commands.CreateKnowledgeEntry,
+		updateKnowledge:          commands.UpdateKnowledgeEntry,
+		markKnowledgeStale:       commands.MarkKnowledgeStale,
+		revalidateKnowledge:      commands.RevalidateKnowledgeEntry,
+		listPendingKnowledge:     queries.ListPendingKnowledge,
+		approveKnowledge:         commands.ApproveKnowledgeEntry,
+		dismissKnowledge:         commands.DismissKnowledgeEntry,
+		promoteConversation:      commands.PromoteConversationToKnowledge,
+		dashboardMetrics:         queries.GetDashboardMetrics,
+		listInbox:                queries.ListInbox,
+		getMember:                queries.GetMember,
+		updateMember:             commands.UpdateMember,
+		listMembers:              queries.ListMembers,
+		getOrgMember:             queries.GetOrgMember,
+		setMemberAvailability:    commands.SetMemberAvailability,
+		setMemberActivation:      commands.SetMemberActivation,
+		setOrgAdmin:              commands.SetOrgAdmin,
+		listConnectedChannels:    queries.ListConnectedChannels,
+		providerCredentials:      deps.ProviderCredentials,
+		getProviderAlertChannels: queries.GetProviderAlertChannels,
+		listMcpConnections:       deps.ListMCPConnections,
+		revokeMcpConnection:      deps.RevokeMCPConnection,
+		heartbeat:                commands.Heartbeat,
+		createOrganization:       commands.CreateOrganization,
+		createProject:            commands.CreateProject,
+		addMember:                commands.AddMember,
+		inviteMembers:            commands.InviteMembers,
+		assignRole:               commands.AssignRole,
+		setOwnExpertise:          commands.SetOwnExpertise,
+		removeMember:             commands.RemoveMember,
+		configureProvider:        commands.ConfigureProvider,
+		syncChatBindings:         commands.SyncChatBindings,
+		disconnectProvider:       commands.DisconnectProvider,
+		sendProviderTest:         commands.SendProviderTest,
+		getOrgSettings:           queries.GetOrganizationSettings,
+		updateOrgSettings:        commands.UpdateOrganizationSettings,
+		renameOrganization:       commands.RenameOrganization,
+		deleteOrganization:       commands.DeleteOrganization,
+		getOrganization:          queries.GetOrganization,
+		listOrganizations:        queries.ListOrganizations,
+		generateJoinCode:         commands.GenerateJoinCode,
+		getJoinCode:              queries.GetJoinCode,
+		revokeJoinCode:           commands.RevokeJoinCode,
+		createMachineToken:       commands.CreateMachineToken,
+		listMachineTokens:        queries.ListMachineTokens,
+		revokeMachineToken:       commands.RevokeMachineToken,
+		projects:                 deps.Projects,
+		convScope:                deps.ConversationScope,
+		logger:                   deps.Logger,
 	}
 }
 
@@ -1761,11 +1701,25 @@ func (s *Server) UpdateMember(
 		return nil, toConnectError(err)
 	}
 
-	return connect.NewResponse(&orakov1.UpdateMemberResponse{Member: pbMember(query.NewMemberView(updated))}), nil
+	return connect.NewResponse(&orakov1.UpdateMemberResponse{Member: pbMember(query.MemberView{
+		ID:              updated.ID,
+		Email:           updated.Email,
+		DisplayName:     updated.DisplayName,
+		FirstName:       updated.FirstName,
+		LastName:        updated.LastName,
+		GitHandle:       updated.GitHandle,
+		DeliveryChannel: model.DeliveryChannel(updated.DeliveryChannel),
+		SlackUserID:     updated.SlackUserID,
+		TelegramChatID:  updated.TelegramChatID,
+		TeamsUserID:     updated.TeamsUserID,
+		DiscordUserID:   updated.DiscordUserID,
+		BindingError:    updated.BindingError,
+		Status:          model.MemberStatus(updated.Status),
+		CreatedAt:       updated.CreatedAt,
+	})}), nil
 }
 
-// ListMcpConnections returns the caller's connected MCP clients (one entry
-// per grant_id), member-scoped — not an admin RPC.
+// ListMcpConnections returns the caller's MCP clients in the active org.
 func (s *Server) ListMcpConnections(
 	ctx context.Context,
 	_ *connect.Request[orakov1.ListMcpConnectionsRequest],
@@ -1775,7 +1729,7 @@ func (s *Server) ListMcpConnections(
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("no caller identity in context"))
 	}
 
-	grants, err := s.listMcpConnections.ListGrantsByMember(ctx, caller.MemberID)
+	grants, err := s.listMcpConnections.ListGrantsByMember(ctx, caller.OrgID, caller.MemberID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -1788,9 +1742,8 @@ func (s *Server) ListMcpConnections(
 	return connect.NewResponse(&orakov1.ListMcpConnectionsResponse{Connections: out}), nil
 }
 
-// RevokeMcpConnection disconnects one of the caller's MCP clients
-// immediately, member-scoped — not an admin RPC. The store filters by
-// member_id, so a caller can never revoke another member's connection.
+// RevokeMcpConnection disconnects one of the caller's MCP clients in the
+// active org.
 func (s *Server) RevokeMcpConnection(
 	ctx context.Context,
 	req *connect.Request[orakov1.RevokeMcpConnectionRequest],
@@ -1805,7 +1758,7 @@ func (s *Server) RevokeMcpConnection(
 		return nil, err
 	}
 
-	if err := s.revokeMcpConnection.RevokeGrantForMember(ctx, caller.MemberID, grantID); err != nil {
+	if err := s.revokeMcpConnection.RevokeGrantForMember(ctx, caller.OrgID, caller.MemberID, grantID); err != nil {
 		if errors.Is(err, adaptererr.ErrNotFound) {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
@@ -2323,7 +2276,11 @@ func (s *Server) SetOwnExpertise(
 			errors.New("caller is not a project member yet"))
 	}
 
-	if err := s.setOwnExpertise.Handle(ctx, caller.MemberID, req.Msg.GetDomains()); err != nil {
+	if err := s.setOwnExpertise.Handle(ctx, command.SetOwnExpertiseCommand{
+		OrgID:    caller.OrgID,
+		MemberID: caller.MemberID,
+		Domains:  req.Msg.GetDomains(),
+	}); err != nil {
 		return nil, toConnectError(err)
 	}
 

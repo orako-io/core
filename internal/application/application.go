@@ -26,6 +26,7 @@ import (
 	"github.com/orako-io/core/internal/adapters/provider"
 	"github.com/orako-io/core/internal/adapters/provider/slack"
 	"github.com/orako-io/core/internal/application/command"
+	"github.com/orako-io/core/internal/application/domain/model"
 	"github.com/orako-io/core/internal/application/event"
 	"github.com/orako-io/core/internal/application/query"
 	"github.com/orako-io/core/internal/application/service"
@@ -84,6 +85,9 @@ type Commands struct {
 	DismissKnowledgeEntry          command.DismissKnowledgeEntryHandler
 	RevalidateKnowledgeEntry       command.RevalidateKnowledgeEntryHandler
 	PromoteConversationToKnowledge command.PromoteConversationToKnowledgeHandler
+
+	CreateMachineToken command.CreateMachineTokenHandler `exhaustruct:"optional"`
+	RevokeMachineToken command.RevokeMachineTokenHandler `exhaustruct:"optional"`
 }
 
 // Queries groups every CQRS read-side handler.
@@ -110,6 +114,7 @@ type Queries struct {
 	GetJoinCode             query.GetJoinCodeHandler
 	ListKnowledgeEntries    query.ListKnowledgeEntriesHandler
 	ListPendingKnowledge    query.ListPendingKnowledgeEntriesHandler
+	ListMachineTokens       query.ListMachineTokensHandler `exhaustruct:"optional"`
 }
 
 // App owns the command/query handlers and event runtime.
@@ -128,8 +133,25 @@ type App struct {
 
 type providerKindResolver struct{ reg *provider.Registry }
 
+type machineTokenBackend interface {
+	MintMachineToken(ctx context.Context, orgID, memberID uuid.UUID, projectIDs []uuid.UUID, label string) (command.MintedMachineToken, error)
+	ListMachineTokens(ctx context.Context, orgID uuid.UUID) ([]query.MachineTokenView, error)
+	RevokeMachineToken(ctx context.Context, orgID, tokenID uuid.UUID) error
+}
+
+type machineTokenProjectReader interface {
+	ByID(context.Context, uuid.UUID) (model.Project, error)
+}
+
 func (r providerKindResolver) ForProjectKind(ctx context.Context, projectID uuid.UUID, kind string) (service.Provider, error) {
 	return r.reg.ForProjectKind(ctx, projectID, provider.ProviderKind(kind))
+}
+
+// ConfigureMachineTokens wires the optional machine-token use cases.
+func (a *App) ConfigureMachineTokens(tokens machineTokenBackend, projects machineTokenProjectReader) {
+	a.Commands.CreateMachineToken = command.MustNewCreateMachineTokenHandler(tokens, projects)
+	a.Commands.RevokeMachineToken = command.MustNewRevokeMachineTokenHandler(tokens)
+	a.Queries.ListMachineTokens = query.MustNewListMachineTokensHandler(tokens)
 }
 
 // New wires the application. The caller retains ownership of pool.
@@ -153,13 +175,17 @@ func New(pool *pgxpool.Pool, reg *provider.Registry, mailer service.Mailer, invi
 	orgStore := identity.NewOrganizationStore(pool)
 	openConvStore := conversation.NewOpenConversationStore(pool)
 
-	seatGate := command.NewLiveMemberGate(pool, projectStore, live)
+	memberLimits := identity.NewMemberLimitStore(pool)
+	orgLimits := identity.NewOrganizationLimitStore(pool)
+	projectLimits := identity.NewProjectLimitStore(pool)
+
+	seatGate := command.NewLiveMemberGate(projectStore, memberLimits, memberLimits, memberLimits, memberLimits, live)
 	if saasGate != nil {
 		seatGate = saasGate
 	}
 
-	orgGate := command.NewLiveOrgGate(pool, live)
-	projGate := command.NewLiveProjectGate(pool, live)
+	orgGate := command.NewLiveOrgGate(orgLimits, orgLimits, live)
+	projGate := command.NewLiveProjectGate(projectLimits, projectLimits, live)
 
 	slackDirectory := slack.NewOrgDirectory(integration.NewOrgResolvingProviderLoader(projectStore, integration.NewOrgProviderStore(pool, credCipher)))
 	surfaceManager := event.NewSurfaceManager(conversation.NewSurfaceStore(pool), memberStore, convStore, providerStore, reg, attachmentStore, blobs, logger)

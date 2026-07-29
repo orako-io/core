@@ -31,6 +31,22 @@ type fakeOrgCounter struct{ count int }
 
 func (c fakeOrgCounter) CountAll(context.Context) (int, error) { return c.count, nil }
 
+type orderedLimitStore struct {
+	events []string
+}
+
+func (s *orderedLimitStore) LockInstance(context.Context) error {
+	s.events = append(s.events, "lock")
+
+	return nil
+}
+
+func (s *orderedLimitStore) CountAll(context.Context) (int, error) {
+	s.events = append(s.events, "count")
+
+	return 0, nil
+}
+
 // TestCommunityMemberGate covers the 5-member cap: allowed below the cap,
 // blocked at/above it, and never gated for a project without an org.
 func TestCommunityMemberGate(t *testing.T) {
@@ -89,6 +105,21 @@ func TestCommunityOrgGate(t *testing.T) {
 	}
 }
 
+func TestCommunityOrgGateLocksBeforeCounting(t *testing.T) {
+	t.Parallel()
+
+	store := &orderedLimitStore{}
+	gate := CommunityOrgGate{orgs: store, locker: store, max: 1}
+
+	if err := gate.AllowNewOrg(t.Context()); err != nil {
+		t.Fatalf("AllowNewOrg: %v", err)
+	}
+
+	if len(store.events) != 2 || store.events[0] != "lock" || store.events[1] != "count" {
+		t.Fatalf("events = %v, want [lock count]", store.events)
+	}
+}
+
 // TestCommunityProjectGate covers the 1-project cap, including the nil-org
 // short-circuit.
 func TestCommunityProjectGate(t *testing.T) {
@@ -131,42 +162,42 @@ func TestBuildGatesSelectByEdition(t *testing.T) {
 
 	// Member gate: SaaS → billing seat gate, Community → community cap, Licensed
 	// → nil (unenforced, honor system).
-	if g := BuildMemberGate(nil, proj, saas); g != nil {
+	if g := BuildMemberGate(proj, gateSeatCounter{}, fakeInstanceSeats{}, nil, nil, saas); g != nil {
 		t.Errorf("SaaS member gate: want nil (injected by the SaaS build), got %T", g)
 	}
 
-	if _, ok := BuildMemberGate(nil, proj, community).(CommunityMemberGate); !ok {
-		t.Errorf("Community member gate: want CommunityMemberGate, got %T", BuildMemberGate(nil, proj, community))
+	if _, ok := BuildMemberGate(proj, gateSeatCounter{}, fakeInstanceSeats{}, nil, nil, community).(CommunityMemberGate); !ok {
+		t.Errorf("Community member gate: want CommunityMemberGate, got %T", BuildMemberGate(proj, gateSeatCounter{}, fakeInstanceSeats{}, nil, nil, community))
 	}
 
-	if _, ok := BuildMemberGate(nil, proj, licensed).(LicensedSeatGate); !ok {
-		t.Errorf("Licensed member gate: want LicensedSeatGate (instance-wide), got %T", BuildMemberGate(nil, proj, licensed))
+	if _, ok := BuildMemberGate(proj, gateSeatCounter{}, fakeInstanceSeats{}, nil, nil, licensed).(LicensedSeatGate); !ok {
+		t.Errorf("Licensed member gate: want LicensedSeatGate (instance-wide), got %T", BuildMemberGate(proj, gateSeatCounter{}, fakeInstanceSeats{}, nil, nil, licensed))
 	}
 
 	// Org gate: only Community.
-	if g := BuildOrgGate(nil, saas); g != nil {
+	if g := BuildOrgGate(fakeOrgCounter{}, nil, saas); g != nil {
 		t.Errorf("SaaS org gate: want nil, got %T", g)
 	}
 
-	if _, ok := BuildOrgGate(nil, community).(CommunityOrgGate); !ok {
-		t.Errorf("Community org gate: want CommunityOrgGate, got %T", BuildOrgGate(nil, community))
+	if _, ok := BuildOrgGate(fakeOrgCounter{}, nil, community).(CommunityOrgGate); !ok {
+		t.Errorf("Community org gate: want CommunityOrgGate, got %T", BuildOrgGate(fakeOrgCounter{}, nil, community))
 	}
 
-	if _, ok := BuildOrgGate(nil, licensed).(CommunityOrgGate); !ok {
-		t.Errorf("Licensed org gate: want an org gate (token MaxOrgs), got %T", BuildOrgGate(nil, licensed))
+	if _, ok := BuildOrgGate(fakeOrgCounter{}, nil, licensed).(CommunityOrgGate); !ok {
+		t.Errorf("Licensed org gate: want an org gate (token MaxOrgs), got %T", BuildOrgGate(fakeOrgCounter{}, nil, licensed))
 	}
 
 	// Project gate: only Community.
-	if g := BuildProjectGate(nil, saas); g != nil {
+	if g := BuildProjectGate(gateSeatCounter{}, nil, saas); g != nil {
 		t.Errorf("SaaS project gate: want nil, got %T", g)
 	}
 
-	if _, ok := BuildProjectGate(nil, community).(CommunityProjectGate); !ok {
-		t.Errorf("Community project gate: want CommunityProjectGate, got %T", BuildProjectGate(nil, community))
+	if _, ok := BuildProjectGate(gateSeatCounter{}, nil, community).(CommunityProjectGate); !ok {
+		t.Errorf("Community project gate: want CommunityProjectGate, got %T", BuildProjectGate(gateSeatCounter{}, nil, community))
 	}
 
-	if _, ok := BuildProjectGate(nil, licensed).(CommunityProjectGate); !ok {
-		t.Errorf("Licensed project gate: want a project gate (token MaxProjects), got %T", BuildProjectGate(nil, licensed))
+	if _, ok := BuildProjectGate(gateSeatCounter{}, nil, licensed).(CommunityProjectGate); !ok {
+		t.Errorf("Licensed project gate: want a project gate (token MaxProjects), got %T", BuildProjectGate(gateSeatCounter{}, nil, licensed))
 	}
 }
 

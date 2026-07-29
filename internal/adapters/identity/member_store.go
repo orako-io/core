@@ -73,6 +73,26 @@ func (s *MemberStore) ReadMember(ctx context.Context, id uuid.UUID) (query.Membe
 	return query.NewMemberView(member), nil
 }
 
+// ReadMembers returns the existing members keyed by ID.
+func (s *MemberStore) ReadMembers(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]query.MemberView, error) {
+	if len(ids) == 0 {
+		return map[uuid.UUID]query.MemberView{}, nil
+	}
+
+	rows, err := New(postgres.Conn(ctx, s.pool)).membersByIDs(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("fetching members by ids: %w", adaptererr.Decode(err))
+	}
+
+	members := make(map[uuid.UUID]query.MemberView, len(rows))
+	for _, row := range rows {
+		member := memberRowToModel(memberByIDRow(row))
+		members[member.ID] = query.NewMemberView(member)
+	}
+
+	return members, nil
+}
+
 // BySlackUserID fetches a member by their Slack user ID.
 // Returns adaptererr.ErrNotFound when no member with that Slack user ID exists,
 // and when slackUserID is empty (the column is NOT NULL DEFAULT ”, so an empty

@@ -36,6 +36,21 @@ func scopeProjects(memberships []repository.ProjectWithRole, scope []uuid.UUID) 
 	return out
 }
 
+func scopeProjectsInOrg(memberships []repository.ProjectWithRole, orgID uuid.UUID, scope []uuid.UUID) []repository.ProjectWithRole {
+	if orgID == uuid.Nil {
+		return scopeProjects(memberships, scope)
+	}
+
+	inOrg := make([]repository.ProjectWithRole, 0, len(memberships))
+	for _, membership := range memberships {
+		if membership.OrgID == orgID {
+			inOrg = append(inOrg, membership)
+		}
+	}
+
+	return scopeProjects(inOrg, scope)
+}
+
 // projectIDsOf extracts the project ids in order.
 func projectIDsOf(memberships []repository.ProjectWithRole) []uuid.UUID {
 	out := make([]uuid.UUID, len(memberships))

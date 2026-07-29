@@ -296,14 +296,12 @@ func (f *fakeAssignRole) Handle(_ context.Context, cmd command.AssignRoleCommand
 }
 
 type fakeSetOwnExpertise struct {
-	err          error     `exhaustruct:"optional"`
-	lastMemberID uuid.UUID `exhaustruct:"optional"`
-	lastDomains  []string  `exhaustruct:"optional"`
+	err     error                          `exhaustruct:"optional"`
+	lastCmd command.SetOwnExpertiseCommand `exhaustruct:"optional"`
 }
 
-func (f *fakeSetOwnExpertise) Handle(_ context.Context, memberID uuid.UUID, domains []string) error {
-	f.lastMemberID = memberID
-	f.lastDomains = domains
+func (f *fakeSetOwnExpertise) Handle(_ context.Context, cmd command.SetOwnExpertiseCommand) error {
+	f.lastCmd = cmd
 	return f.err
 }
 
@@ -381,11 +379,11 @@ func (f *fakeGetMember) Handle(_ context.Context, _ query.GetMemberQuery) (query
 }
 
 type fakeUpdateMember struct {
-	member model.Member
+	member command.UpdateMemberResult
 	err    error `exhaustruct:"optional"`
 }
 
-func (f *fakeUpdateMember) Handle(_ context.Context, _ command.UpdateMemberCommand) (model.Member, error) {
+func (f *fakeUpdateMember) Handle(_ context.Context, _ command.UpdateMemberCommand) (command.UpdateMemberResult, error) {
 	return f.member, f.err
 }
 
@@ -460,19 +458,73 @@ func newTestServer(
 	rm *fakeRemoveMember,
 	cfgp *fakeConfigureProvider,
 ) *Server {
-	return NewServer(ls, as, gc, fu, cc, &fakeDismissConversation{}, lp, rp, spa, dp, &fakeDeleteConversation{}, lpd, lc,
-		&fakeSearchHistory{}, &fakeHistoryCounts{},
-		&fakeListKnowledge{}, &fakeCreateKnowledge{}, &fakeUpdateKnowledge{}, &fakeMarkKnowledgeStale{},
-		&fakeRevalidateKnowledge{}, &fakeListPendingKnowledge{}, &fakeApproveKnowledge{}, &fakeDismissKnowledge{}, &fakePromoteConversation{},
-		&fakeDashboardMetrics{}, li, gm, um,
-		&fakeListMembers{}, &fakeGetOrgMember{}, &fakeSetMemberAvailability{}, &fakeSetMemberActivation{}, &fakeSetOrgAdmin{},
-		lcc, fakeProviderCredentials{}, gpac,
-		&fakeListMcpConnections{}, &fakeRevokeMcpConnection{},
-		hb, co, cp, am, &fakeInviteMembers{}, ar, &fakeSetOwnExpertise{}, rm, cfgp, &fakeSyncChatBindings{}, &fakeDisconnectProvider{}, &fakeSendProviderTest{},
-		&fakeGetOrgSettings{}, &fakeUpdateOrgSettings{}, &fakeRenameOrganization{}, &fakeDeleteOrganization{}, &fakeGetOrganization{}, &fakeListOrganizations{},
-		&fakeGenerateJoinCode{}, &fakeGetJoinCode{}, &fakeRevokeJoinCode{},
-		&fakeCreateMachineToken{}, &fakeListMachineTokens{}, &fakeRevokeMachineToken{},
-		seededProjectResolver(), &fakeConvScope{}, newTestLogger())
+	return &Server{
+		listExperts:              ls,
+		ask:                      as,
+		getConversation:          gc,
+		followUp:                 fu,
+		resolveConversation:      cc,
+		dismissConversation:      &fakeDismissConversation{},
+		listProjects:             lp,
+		renameProject:            rp,
+		setProjectArchived:       spa,
+		deleteProject:            dp,
+		deleteConversation:       &fakeDeleteConversation{},
+		listProjectsDetailed:     lpd,
+		listConversations:        lc,
+		searchHistory:            &fakeSearchHistory{},
+		historyCounts:            &fakeHistoryCounts{},
+		listKnowledge:            &fakeListKnowledge{},
+		createKnowledge:          &fakeCreateKnowledge{},
+		updateKnowledge:          &fakeUpdateKnowledge{},
+		markKnowledgeStale:       &fakeMarkKnowledgeStale{},
+		revalidateKnowledge:      &fakeRevalidateKnowledge{},
+		listPendingKnowledge:     &fakeListPendingKnowledge{},
+		approveKnowledge:         &fakeApproveKnowledge{},
+		dismissKnowledge:         &fakeDismissKnowledge{},
+		promoteConversation:      &fakePromoteConversation{},
+		dashboardMetrics:         &fakeDashboardMetrics{},
+		listInbox:                li,
+		getMember:                gm,
+		updateMember:             um,
+		listMembers:              &fakeListMembers{},
+		getOrgMember:             &fakeGetOrgMember{},
+		setMemberAvailability:    &fakeSetMemberAvailability{},
+		setMemberActivation:      &fakeSetMemberActivation{},
+		setOrgAdmin:              &fakeSetOrgAdmin{},
+		listConnectedChannels:    lcc,
+		providerCredentials:      fakeProviderCredentials{},
+		getProviderAlertChannels: gpac,
+		listMcpConnections:       &fakeListMcpConnections{},
+		revokeMcpConnection:      &fakeRevokeMcpConnection{},
+		heartbeat:                hb,
+		createOrganization:       co,
+		createProject:            cp,
+		addMember:                am,
+		inviteMembers:            &fakeInviteMembers{},
+		assignRole:               ar,
+		setOwnExpertise:          &fakeSetOwnExpertise{},
+		removeMember:             rm,
+		configureProvider:        cfgp,
+		syncChatBindings:         &fakeSyncChatBindings{},
+		disconnectProvider:       &fakeDisconnectProvider{},
+		sendProviderTest:         &fakeSendProviderTest{},
+		getOrgSettings:           &fakeGetOrgSettings{},
+		updateOrgSettings:        &fakeUpdateOrgSettings{},
+		renameOrganization:       &fakeRenameOrganization{},
+		deleteOrganization:       &fakeDeleteOrganization{},
+		getOrganization:          &fakeGetOrganization{},
+		listOrganizations:        &fakeListOrganizations{},
+		generateJoinCode:         &fakeGenerateJoinCode{},
+		getJoinCode:              &fakeGetJoinCode{},
+		revokeJoinCode:           &fakeRevokeJoinCode{},
+		createMachineToken:       &fakeCreateMachineToken{},
+		listMachineTokens:        &fakeListMachineTokens{},
+		revokeMachineToken:       &fakeRevokeMachineToken{},
+		projects:                 seededProjectResolver(),
+		convScope:                &fakeConvScope{},
+		logger:                   newTestLogger(),
+	}
 }
 
 // Join-code fakes: no-op stubs so the shared test server satisfies the handler
@@ -690,7 +742,7 @@ type fakeListMcpConnections struct {
 	err    error `exhaustruct:"optional"`
 }
 
-func (f *fakeListMcpConnections) ListGrantsByMember(_ context.Context, _ uuid.UUID) ([]oauth.Grant, error) {
+func (f *fakeListMcpConnections) ListGrantsByMember(_ context.Context, _, _ uuid.UUID) ([]oauth.Grant, error) {
 	return f.grants, f.err
 }
 
@@ -698,7 +750,7 @@ type fakeRevokeMcpConnection struct {
 	err error `exhaustruct:"optional"`
 }
 
-func (f *fakeRevokeMcpConnection) RevokeGrantForMember(_ context.Context, _, _ uuid.UUID) error {
+func (f *fakeRevokeMcpConnection) RevokeGrantForMember(_ context.Context, _, _, _ uuid.UUID) error {
 	return f.err
 }
 

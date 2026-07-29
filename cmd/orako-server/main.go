@@ -36,7 +36,6 @@ import (
 	"github.com/orako-io/core/internal/adapters/provider/discord"
 	"github.com/orako-io/core/internal/application"
 	"github.com/orako-io/core/internal/application/command"
-	"github.com/orako-io/core/internal/application/query"
 	"github.com/orako-io/core/internal/application/service"
 	"github.com/orako-io/core/internal/infra/api"
 	discordhttp "github.com/orako-io/core/internal/infra/api/discord"
@@ -504,7 +503,8 @@ func resolveEdition(ctx context.Context, store *licensing.LicenseStore, managed 
 		log.WarnContext(ctx, "license verification failed; running as community edition", slog.String("error", err.Error()))
 	}
 
-	log.InfoContext(ctx, "edition resolved",
+	log.InfoContext(
+		ctx, "edition resolved",
 		slog.String("edition", ed.Kind.String()),
 		slog.Int("max_members", ed.Limits.MaxMembers),
 		slog.Int("max_orgs", ed.Limits.MaxOrgs),
@@ -572,7 +572,8 @@ func refreshEditionOnce(ctx context.Context, live *edition.Live, store *licensin
 	live.Store(ed)
 
 	if ed.Kind != prev.Kind {
-		log.InfoContext(ctx, "edition changed at runtime",
+		log.InfoContext(
+			ctx, "edition changed at runtime",
 			slog.String("from", prev.Kind.String()),
 			slog.String("to", ed.Kind.String()),
 		)
@@ -673,8 +674,6 @@ func setupLocalAuth(ctx context.Context, conf config.Config, pool *pgxpool.Pool,
 		return nil, nil
 	}
 
-	accounts := identity.NewAccountStore(pool)
-
 	createOrg := func(ctx context.Context, orgName string, ownerID uuid.UUID) error {
 		_, err := app.Commands.CreateOrganization.Handle(ctx, command.CreateOrganizationCommand{
 			Name:             orgName,
@@ -684,7 +683,23 @@ func setupLocalAuth(ctx context.Context, conf config.Config, pool *pgxpool.Pool,
 		return err
 	}
 
-	created, err := command.SeedAdmin(ctx, accounts, createOrg, conf.AdminEmail, conf.AdminPassword)
+	handlers, created, err := application.NewLocalAuthHandlers(
+		ctx,
+		pool,
+		mailer,
+		createOrg,
+		application.LocalAuthConfig{
+			AdminEmail:    conf.AdminEmail,
+			AdminPassword: conf.AdminPassword,
+			Secret:        conf.AuthHS256Secret,
+			Issuer:        conf.AuthIssuer,
+			Audience:      conf.AuthAudience,
+			BaseURL:       conf.BaseURL,
+			SessionTTL:    localSessionTTL,
+			ResetTTL:      resetTTL,
+		},
+		log,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -693,11 +708,7 @@ func setupLocalAuth(ctx context.Context, conf config.Config, pool *pgxpool.Pool,
 		log.InfoContext(ctx, "seeded first local-auth admin from ORAKO_ADMIN_EMAIL")
 	}
 
-	login := command.NewLoginHandler(accounts, conf.AuthHS256Secret, conf.AuthIssuer, conf.AuthAudience, localSessionTTL)
-	accept := command.NewAcceptInviteHandler(accounts, conf.AuthHS256Secret)
-	reset := command.NewResetHandler(accounts, mailer, conf.AuthHS256Secret, conf.BaseURL, resetTTL, log)
-
-	return api.NewLocalAuthHandler(login, accept, reset), nil
+	return api.NewLocalAuthHandler(handlers.Login, handlers.AcceptInvite, handlers.Reset), nil
 }
 
 func selectMailer(conf config.Config, log *slog.Logger) service.Mailer {
@@ -956,76 +967,19 @@ func buildMux(
 	}
 
 	machineTokens := api.NewMachineTokenGateway(mcpConnections, conf.BaseURL+"/mcp")
-	createMachineToken := command.MustNewCreateMachineTokenHandler(machineTokens, projects)
-	listMachineTokens := query.MustNewListMachineTokensHandler(machineTokens)
-	revokeMachineToken := command.MustNewRevokeMachineTokenHandler(mcpConnections)
+	app.ConfigureMachineTokens(machineTokens, projects)
 
 	svc := api.NewServer(
-		app.Queries.ListExperts,
-		app.Commands.Ask,
-		app.Queries.GetConversation,
-		app.Commands.FollowUp,
-		app.Commands.ResolveConversation,
-		app.Commands.DismissConversation,
-		app.Queries.ListProjects,
-		app.Commands.RenameProject,
-		app.Commands.SetProjectArchived,
-		app.Commands.DeleteProject,
-		app.Commands.DeleteConversation,
-		app.Queries.ListProjectsDetailed,
-		app.Queries.ListConversations,
-		app.Queries.SearchHistory,
-		app.Queries.HistoryStatusCounts,
-		app.Queries.ListKnowledgeEntries,
-		app.Commands.CreateKnowledgeEntry,
-		app.Commands.UpdateKnowledgeEntry,
-		app.Commands.MarkKnowledgeStale,
-		app.Commands.RevalidateKnowledgeEntry,
-		app.Queries.ListPendingKnowledge,
-		app.Commands.ApproveKnowledgeEntry,
-		app.Commands.DismissKnowledgeEntry,
-		app.Commands.PromoteConversationToKnowledge,
-		app.Queries.GetDashboardMetrics,
-		app.Queries.ListInbox,
-		app.Queries.GetMember,
-		app.Commands.UpdateMember,
-		app.Queries.ListMembers,
-		app.Queries.GetOrgMember,
-		app.Commands.SetMemberAvailability,
-		app.Commands.SetMemberActivation,
-		app.Commands.SetOrgAdmin,
-		app.Queries.ListConnectedChannels,
-		providerCreds,
-		app.Queries.GetProviderAlertChannels,
-		mcpConnections,
-		mcpConnections,
-		app.Commands.Heartbeat,
-		app.Commands.CreateOrganization,
-		app.Commands.CreateProject,
-		app.Commands.AddMember,
-		app.Commands.InviteMembers,
-		app.Commands.AssignRole,
-		app.Commands.SetOwnExpertise,
-		app.Commands.RemoveMember,
-		app.Commands.ConfigureProvider,
-		app.Commands.SyncChatBindings,
-		app.Commands.DisconnectProvider,
-		app.Commands.SendProviderTest,
-		app.Queries.GetOrganizationSettings,
-		app.Commands.UpdateOrganizationSettings,
-		app.Commands.RenameOrganization,
-		app.Commands.DeleteOrganization,
-		app.Queries.GetOrganization,
-		app.Queries.ListOrganizations,
-		app.Commands.GenerateJoinCode,
-		app.Queries.GetJoinCode,
-		app.Commands.RevokeJoinCode,
-		createMachineToken,
-		listMachineTokens,
-		revokeMachineToken,
-		projects,
-		conversations,
-		log,
+		app.Commands,
+		app.Queries,
+		api.ServerDependencies{
+			ProviderCredentials: providerCreds,
+			ListMCPConnections:  mcpConnections,
+			RevokeMCPConnection: mcpConnections,
+			Projects:            projects,
+			ConversationScope:   conversations,
+			Logger:              log,
+		},
 	)
 
 	path, handler := svc.Handler(connect.WithInterceptors(api.NewAuthInterceptor(authenticator, activeOrg)))
@@ -1120,7 +1074,8 @@ func slogRequestLogger(log *slog.Logger) func(http.Handler) http.Handler {
 
 			next.ServeHTTP(ww, r)
 
-			log.InfoContext(r.Context(), "http request",
+			log.InfoContext(
+				r.Context(), "http request",
 				slog.String("method", r.Method),
 				slog.String("path", r.URL.Path),
 				slog.Int("status", ww.Status()),

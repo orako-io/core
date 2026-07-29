@@ -32,7 +32,7 @@ type MachineTokenView struct {
 	ID    uuid.UUID
 	Label string
 	// ProjectIDs is the token's project scope (ordered, first = primary).
-	// Empty means it reaches every project the owning member can.
+	// Empty means every project the owning member can reach in this org.
 	ProjectIDs []uuid.UUID `exhaustruct:"optional"`
 	CreatedAt  time.Time
 	ExpiresAt  time.Time
@@ -75,5 +75,10 @@ func (h ListMachineTokensHandler) Handle(ctx context.Context, q ListMachineToken
 		return nil, errs.InvalidError{Field: "org_id", Reason: "no organization resolved for the caller"}
 	}
 
-	return h.tokens.ListMachineTokens(ctx, q.OrgID)
+	tokens, err := h.tokens.ListMachineTokens(ctx, q.OrgID)
+	if err != nil {
+		return nil, translateReadError(err, "machine_tokens")
+	}
+
+	return tokens, nil
 }

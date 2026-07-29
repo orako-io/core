@@ -117,6 +117,12 @@ func (h AddMemberHandler) autoBindSlack(ctx context.Context, projectID uuid.UUID
 // already existed.
 func (h AddMemberHandler) provision(ctx context.Context, email string, candidate model.Member, membership repository.ProjectMembership) (memberID uuid.UUID, freshInvite, alreadyMember bool, err error) {
 	err = h.txor.WithTx(ctx, func(ctx context.Context) error {
+		if h.gate != nil {
+			if err := h.gate.AllowNewMember(ctx, membership.ProjectID); err != nil {
+				return err
+			}
+		}
+
 		id, fresh, ferr := h.provisioner.FindOrCreateByEmail(ctx, email, candidate)
 		if ferr != nil {
 			return ferr
@@ -142,16 +148,6 @@ func (h AddMemberHandler) provision(ctx context.Context, email string, candidate
 // their Slack id by email when possible, and emits the right lifecycle event
 // (exactly one invitation email per member).
 func (h AddMemberHandler) Handle(ctx context.Context, cmd AddMemberCommand) (AddMemberResult, error) {
-	// Seat gate (SaaS only): block growth when the org is at its paid seat cap
-	// or its trial has lapsed. Skipped entirely when no gate is wired
-	// (self-host). Existing members and the ask/answer flow are never affected —
-	// this touches only the add path.
-	if h.gate != nil {
-		if err := h.gate.AllowNewMember(ctx, cmd.ProjectID); err != nil {
-			return AddMemberResult{}, err
-		}
-	}
-
 	// Build the candidate first so domain invariants are checked before any DB work.
 	newMemberID := uuid.New()
 

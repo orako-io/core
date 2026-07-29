@@ -122,23 +122,23 @@ func (q *Queries) projectMembersMissingSlackBinding(ctx context.Context, project
 	return items, nil
 }
 
-const setDomainsForMember = `-- name: setDomainsForMember :execrows
-UPDATE project_members
-SET domains = $2
-WHERE member_id = $1
+const setDomainsForMemberInOrg = `-- name: setDomainsForMemberInOrg :execrows
+UPDATE project_members pm
+SET domains = $1
+FROM projects p
+WHERE pm.project_id = p.id
+  AND pm.member_id = $2
+  AND p.org_id = $3
 `
 
-type setDomainsForMemberParams struct {
-	MemberID uuid.UUID `json:"member_id"`
-	Domains  []string  `json:"domains"`
+type setDomainsForMemberInOrgParams struct {
+	Domains  []string    `json:"domains"`
+	MemberID uuid.UUID   `json:"member_id"`
+	OrgID    pgtype.UUID `json:"org_id"`
 }
 
-// Self-serve expertise: replace a member's domains across ALL their project
-// memberships in one statement. Scope is the member (not one project), so an
-// onboarding member can set their own expertise without touching another
-// membership. Returns the number of memberships updated.
-func (q *Queries) setDomainsForMember(ctx context.Context, arg setDomainsForMemberParams) (int64, error) {
-	result, err := q.db.Exec(ctx, setDomainsForMember, arg.MemberID, arg.Domains)
+func (q *Queries) setDomainsForMemberInOrg(ctx context.Context, arg setDomainsForMemberInOrgParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setDomainsForMemberInOrg, arg.Domains, arg.MemberID, arg.OrgID)
 	if err != nil {
 		return 0, err
 	}

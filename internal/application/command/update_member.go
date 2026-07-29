@@ -5,6 +5,7 @@ package command
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -81,6 +82,24 @@ type UpdateMemberCommand struct {
 	GitHandle string
 }
 
+// UpdateMemberResult is the transport-neutral updated member view.
+type UpdateMemberResult struct {
+	ID              uuid.UUID
+	Email           string
+	DisplayName     string
+	FirstName       string
+	LastName        string
+	GitHandle       string
+	DeliveryChannel string
+	SlackUserID     string
+	TelegramChatID  string
+	TeamsUserID     string
+	DiscordUserID   string
+	BindingError    string
+	Status          string
+	CreatedAt       time.Time
+}
+
 // UpdateMemberHandler handles UpdateMemberCommand.
 type UpdateMemberHandler struct {
 	store memberChannelStore
@@ -105,12 +124,12 @@ func MustNewUpdateMemberHandler(store memberChannelStore, orgs memberOrgReader) 
 // loads them, applies the provided changes, validates the resulting
 // channel/binding invariant, and persists. It returns the updated member so
 // the caller need not re-read.
-func (h UpdateMemberHandler) Handle(ctx context.Context, cmd UpdateMemberCommand) (model.Member, error) {
+func (h UpdateMemberHandler) Handle(ctx context.Context, cmd UpdateMemberCommand) (UpdateMemberResult, error) {
 	target := cmd.MemberID
 
 	if cmd.TargetMemberID != uuid.Nil && cmd.TargetMemberID != cmd.MemberID {
 		if !cmd.IsOrgAdmin {
-			return model.Member{}, errs.ForbiddenError{Action: "update another member's settings"}
+			return UpdateMemberResult{}, errs.ForbiddenError{Action: "update another member's settings"}
 		}
 
 		// Tenant scope: an org admin may only reach a member of their OWN
@@ -118,7 +137,7 @@ func (h UpdateMemberHandler) Handle(ctx context.Context, cmd UpdateMemberCommand
 		// global ByID lookup keyed on admin-status alone would let an org-A
 		// admin read/write any member in the database by UUID.
 		if err := h.verifyTargetInCallerOrg(ctx, cmd.OrgID, cmd.TargetMemberID); err != nil {
-			return model.Member{}, err
+			return UpdateMemberResult{}, err
 		}
 
 		target = cmd.TargetMemberID
@@ -126,18 +145,18 @@ func (h UpdateMemberHandler) Handle(ctx context.Context, cmd UpdateMemberCommand
 
 	member, err := h.store.ByID(ctx, target)
 	if err != nil {
-		return model.Member{}, translateErr(err, "member")
+		return UpdateMemberResult{}, translateErr(err, "member")
 	}
 
 	if err := applyProfile(&member, cmd); err != nil {
-		return model.Member{}, err
+		return UpdateMemberResult{}, err
 	}
 
 	bindingChanged := applyBindings(&member, cmd)
 
 	if cmd.DeliveryChannel != "" {
 		if !cmd.DeliveryChannel.Valid() {
-			return model.Member{}, errs.InvalidError{Field: "delivery_channel", Reason: "unknown channel"}
+			return UpdateMemberResult{}, errs.InvalidError{Field: "delivery_channel", Reason: "unknown channel"}
 		}
 
 		member.DeliveryChannel = cmd.DeliveryChannel
@@ -148,14 +167,33 @@ func (h UpdateMemberHandler) Handle(ctx context.Context, cmd UpdateMemberCommand
 	}
 
 	if err := validateChannelBinding(member); err != nil {
-		return model.Member{}, err
+		return UpdateMemberResult{}, err
 	}
 
 	if err := h.store.Update(ctx, member); err != nil {
-		return model.Member{}, translateErr(err, "member")
+		return UpdateMemberResult{}, translateErr(err, "member")
 	}
 
-	return member, nil
+	return updateMemberResult(member), nil
+}
+
+func updateMemberResult(member model.Member) UpdateMemberResult {
+	return UpdateMemberResult{
+		ID:              member.ID,
+		Email:           member.Email,
+		DisplayName:     member.DisplayName,
+		FirstName:       member.FirstName,
+		LastName:        member.LastName,
+		GitHandle:       member.GitHandle,
+		DeliveryChannel: string(member.DeliveryChannel),
+		SlackUserID:     member.SlackUserID,
+		TelegramChatID:  member.TelegramChatID,
+		TeamsUserID:     member.TeamsUserID,
+		DiscordUserID:   member.DiscordUserID,
+		BindingError:    member.BindingError,
+		Status:          string(member.Status),
+		CreatedAt:       member.CreatedAt,
+	}
 }
 
 // verifyTargetInCallerOrg proves targetMemberID belongs to callerOrgID before

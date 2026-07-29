@@ -24,6 +24,32 @@ func (q *Queries) presenceByMember(ctx context.Context, memberID uuid.UUID) (Pre
 	return i, err
 }
 
+const presenceByMembers = `-- name: presenceByMembers :many
+SELECT member_id, online, updated_at
+FROM presence
+WHERE member_id = ANY($1::uuid[])
+`
+
+func (q *Queries) presenceByMembers(ctx context.Context, dollar_1 []uuid.UUID) ([]Presence, error) {
+	rows, err := q.db.Query(ctx, presenceByMembers, dollar_1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Presence{}
+	for rows.Next() {
+		var i Presence
+		if err := rows.Scan(&i.MemberID, &i.Online, &i.UpdatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const upsertPresence = `-- name: upsertPresence :one
 
 INSERT INTO presence (member_id, online, updated_at)

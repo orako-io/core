@@ -4,11 +4,8 @@ package query
 
 import (
 	"context"
-	"errors"
 
 	"github.com/google/uuid"
-
-	adaptererr "github.com/orako-io/core/internal/adapters/errors"
 )
 
 // ListExpertsQuery is the input for listing experts in a project.
@@ -62,19 +59,30 @@ func MustNewListExpertsHandler(
 func (h ListExpertsHandler) Handle(ctx context.Context, q ListExpertsQuery) ([]Expert, error) {
 	memberships, err := h.projectReader.MembersByProject(ctx, q.ProjectID)
 	if err != nil {
-		return nil, err
+		return nil, translateReadError(err, "project_members")
+	}
+
+	memberIDs := make([]uuid.UUID, len(memberships))
+	for i, membership := range memberships {
+		memberIDs[i] = membership.MemberID
+	}
+
+	members, err := h.memberReader.ReadMembers(ctx, memberIDs)
+	if err != nil {
+		return nil, translateReadError(err, "members")
+	}
+
+	online, err := h.presenceReader.ReadOnlineByMembers(ctx, memberIDs)
+	if err != nil {
+		online = map[uuid.UUID]bool{}
 	}
 
 	var experts []Expert
 
 	for _, m := range memberships {
-		member, err := h.memberReader.ReadMember(ctx, m.MemberID)
-		if err != nil {
-			if errors.Is(err, adaptererr.ErrNotFound) {
-				continue
-			}
-
-			return nil, err
+		member, ok := members[m.MemberID]
+		if !ok {
+			continue
 		}
 
 		// Only routable (active) members belong in the directory: a pending,
@@ -84,13 +92,6 @@ func (h ListExpertsHandler) Handle(ctx context.Context, q ListExpertsQuery) ([]E
 			continue
 		}
 
-		// Errors from presence (including ErrNotFound) are silently swallowed:
-		// presence is a weak hint (PRD §6), not a hard requirement.
-		online := false
-		if on, err := h.presenceReader.ReadOnline(ctx, m.MemberID); err == nil {
-			online = on
-		}
-
 		experts = append(experts, Expert{
 			MemberID:        m.MemberID,
 			DisplayName:     member.DisplayName,
@@ -98,7 +99,7 @@ func (h ListExpertsHandler) Handle(ctx context.Context, q ListExpertsQuery) ([]E
 			Status:          member.Status,
 			InvitedAt:       member.CreatedAt,
 			Domains:         m.Domains,
-			Online:          online,
+			Online:          online[m.MemberID],
 			DeliveryChannel: member.DeliveryChannel,
 		})
 	}

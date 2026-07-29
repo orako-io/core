@@ -147,13 +147,6 @@ func (h RedeemJoinTokenHandler) Handle(ctx context.Context, cmd RedeemJoinTokenC
 		return RedeemJoinTokenResult{}, translateErr(lookupErr, "member")
 	}
 
-	// Seat gate (SaaS only): a join respects the org's seat cap / trial state.
-	if h.gate != nil {
-		if gateErr := h.gate.AllowNewMember(ctx, projectID); gateErr != nil {
-			return RedeemJoinTokenResult{}, gateErr
-		}
-	}
-
 	memberID := uuid.New()
 
 	member, err := model.NewPendingMember(memberID, cmd.AccountID, cmd.Email, displayNameOrEmail(cmd.DisplayName, cmd.Email))
@@ -180,6 +173,12 @@ func (h RedeemJoinTokenHandler) Handle(ctx context.Context, cmd RedeemJoinTokenC
 // row is written (matching the invite path).
 func (h RedeemJoinTokenHandler) provision(ctx context.Context, member model.Member, projectID uuid.UUID) error {
 	return h.txor.WithTx(ctx, func(ctx context.Context) error {
+		if h.gate != nil {
+			if err := h.gate.AllowNewMember(ctx, projectID); err != nil {
+				return err
+			}
+		}
+
 		if err := h.members.CreateWithAccount(ctx, member); err != nil {
 			return err
 		}

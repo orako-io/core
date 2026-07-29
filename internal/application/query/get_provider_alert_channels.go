@@ -37,5 +37,10 @@ func MustNewGetProviderAlertChannelsHandler(reader service.ProviderAlertChannels
 // Handle returns the project's configured providers with their stored alert
 // channel IDs (empty when none is set for that provider).
 func (h GetProviderAlertChannelsHandler) Handle(ctx context.Context, q GetProviderAlertChannelsQuery) ([]service.ProviderAlertChannel, error) {
-	return h.reader.ConfiguredProvidersWithAlertChannel(ctx, q.ProjectID)
+	channels, err := h.reader.ConfiguredProvidersWithAlertChannel(ctx, q.ProjectID)
+	if err != nil {
+		return nil, translateReadError(err, "provider_alert_channels")
+	}
+
+	return channels, nil
 }

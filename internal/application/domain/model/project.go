@@ -36,26 +36,6 @@ type Project struct {
 // Archived reports whether the project is currently frozen.
 func (p Project) Archived() bool { return p.ArchivedAt != nil }
 
-// NewProject builds a Project, validating every invariant.
-func NewProject(id uuid.UUID, name string) (Project, error) {
-	if id == uuid.Nil {
-		return Project{}, errs.InvalidError{Field: "id", Reason: nilUUIDReason}
-	}
-
-	if strings.TrimSpace(name) == "" {
-		return Project{}, errs.InvalidError{Field: "name", Reason: emptyReason}
-	}
-
-	now := time.Now().UTC()
-
-	return Project{
-		ID:        id,
-		Name:      name,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}, nil
-}
-
 // NewProjectInOrg builds a Project linked to an organization, validating every
 // invariant including that orgID is not nil. Use this constructor when the project
 // must be attached to an org at creation time (e.g. the global project created

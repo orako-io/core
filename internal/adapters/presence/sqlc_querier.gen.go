@@ -12,6 +12,7 @@ import (
 
 type Querier interface {
 	presenceByMember(ctx context.Context, memberID uuid.UUID) (Presence, error)
+	presenceByMembers(ctx context.Context, dollar_1 []uuid.UUID) ([]Presence, error)
 	// SPDX-License-Identifier: AGPL-3.0-or-later
 	upsertPresence(ctx context.Context, arg upsertPresenceParams) (Presence, error)
 }

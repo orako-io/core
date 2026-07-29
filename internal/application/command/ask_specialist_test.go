@@ -22,10 +22,8 @@ func newAskHandler(
 	convRepo *fakeConversationRepository,
 	bus *fakeEventBus,
 	lookup *fakeProviderLookup,
-) (AskHandler, *fakeLedgerWriter) {
-	ledger := &fakeLedgerWriter{}
-
-	return MustNewAskHandler(opener, convRepo, bus, lookup, &fakeCandidatePool{}, alwaysDashboardMembers{}, newFakeProjectRepo(), fakeTransactor{}, nil), ledger
+) AskHandler {
+	return MustNewAskHandler(opener, convRepo, bus, lookup, &fakeCandidatePool{}, alwaysDashboardMembers{}, newFakeProjectRepo(), fakeTransactor{}, nil)
 }
 
 // recordingProvider captures the last OutboundMessage it was asked to deliver.
@@ -121,7 +119,7 @@ func TestAsk_RejectsEmptySummary(t *testing.T) {
 	bus := &fakeEventBus{}
 	lookup := newFakeProviderLookup(&noopProvider{})
 
-	h, _ := newAskHandler(convOpener, convRepo, bus, lookup)
+	h := newAskHandler(convOpener, convRepo, bus, lookup)
 
 	_, err := h.Handle(t.Context(), AskCommand{
 		Tags:              []string{"topic"},
@@ -151,7 +149,7 @@ func TestAsk_RejectsNoTags(t *testing.T) {
 	bus := &fakeEventBus{}
 	lookup := newFakeProviderLookup(&noopProvider{})
 
-	h, _ := newAskHandler(convOpener, convRepo, bus, lookup)
+	h := newAskHandler(convOpener, convRepo, bus, lookup)
 
 	_, err := h.Handle(t.Context(), AskCommand{
 		Summary:           "a summary but no tags",
@@ -180,7 +178,7 @@ func TestAsk_HappyPath(t *testing.T) {
 	bus := &fakeEventBus{}
 	lookup := newFakeProviderLookup(&noopProvider{})
 
-	h, _ := newAskHandler(convOpener, convRepo, bus, lookup)
+	h := newAskHandler(convOpener, convRepo, bus, lookup)
 
 	projectID := uuid.New()
 	askerID := uuid.New()
@@ -242,7 +240,7 @@ func TestAsk_DirectAsk_QueuesDelivery(t *testing.T) {
 	bus := &fakeEventBus{}
 	lookup := newFakeProviderLookup(&noopProvider{})
 
-	h, _ := newAskHandler(convOpener, newFakeConvRepo(), bus, lookup)
+	h := newAskHandler(convOpener, newFakeConvRepo(), bus, lookup)
 
 	targetID := uuid.New()
 
@@ -296,7 +294,7 @@ func TestAsk_PoolAsk_QueuesPoolDelivery(t *testing.T) {
 func TestAsk_EmptyQuestion(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newAskHandler(
+	h := newAskHandler(
 		newFakeConversationOpener(),
 		newFakeConvRepo(),
 		&fakeEventBus{},
@@ -325,7 +323,7 @@ func TestAsk_ProviderDeliveryIsNotOnRequestPath(t *testing.T) {
 
 	lookup := newFakeProviderLookup(&noopProvider{deliverErr: errs.InternalError{}})
 
-	h, _ := newAskHandler(
+	h := newAskHandler(
 		newFakeConversationOpener(),
 		newFakeConvRepo(),
 		&fakeEventBus{},
@@ -357,7 +355,7 @@ func TestAsk_NoProviderConfigured(t *testing.T) {
 	lookup := newFakeProviderLookup(nil)
 	lookup.noProvider = true
 
-	h, _ := newAskHandler(convOpener, newFakeConvRepo(), bus, lookup)
+	h := newAskHandler(convOpener, newFakeConvRepo(), bus, lookup)
 
 	_, err := h.Handle(t.Context(), AskCommand{
 		Summary:           "test summary",
@@ -402,7 +400,7 @@ func TestAsk_Wait_AnswerArrivesInline(t *testing.T) {
 
 	targetID := uuid.New()
 
-	h, _ := newAskHandler(
+	h := newAskHandler(
 		newFakeConversationOpener(),
 		convRepo,
 		&fakeEventBus{},
@@ -441,7 +439,7 @@ func TestAsk_Wait_TimesOutToAsync(t *testing.T) {
 
 	targetID := uuid.New()
 
-	h, _ := newAskHandler(
+	h := newAskHandler(
 		newFakeConversationOpener(),
 		newFakeConvRepo(), // no pending answer — poll never succeeds
 		&fakeEventBus{},
@@ -711,7 +709,7 @@ func TestAsk_SelfAskAllowed(t *testing.T) {
 	bus := &fakeEventBus{}
 	lookup := newFakeProviderLookup(&noopProvider{})
 
-	h, _ := newAskHandler(convOpener, newFakeConvRepo(), bus, lookup)
+	h := newAskHandler(convOpener, newFakeConvRepo(), bus, lookup)
 
 	me := uuid.New()
 

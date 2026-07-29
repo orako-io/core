@@ -57,5 +57,10 @@ func (h GetOrganizationSettingsHandler) Handle(ctx context.Context, q GetOrganiz
 		return OrgSettingsView{}, errs.InvalidError{Field: "org_id", Reason: "no organization resolved for the caller"}
 	}
 
-	return h.settings.ReadSettings(ctx, q.OrgID)
+	settings, err := h.settings.ReadSettings(ctx, q.OrgID)
+	if err != nil {
+		return OrgSettingsView{}, translateReadError(err, "organization_settings")
+	}
+
+	return settings, nil
 }

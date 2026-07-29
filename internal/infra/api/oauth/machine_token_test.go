@@ -20,7 +20,8 @@ import (
 func addMemberToProject(t *testing.T, pool *pgxpool.Pool, projectID, memberID uuid.UUID) {
 	t.Helper()
 
-	if _, err := pool.Exec(t.Context(),
+	if _, err := pool.Exec(
+		t.Context(),
 		"INSERT INTO project_members (project_id, member_id) VALUES ($1, $2)",
 		projectID, memberID,
 	); err != nil {
@@ -37,11 +38,12 @@ func TestMintMachineTokenNoRefresh(t *testing.T) {
 
 	pool := testsupport.RequirePostgres(t)
 	store := NewStore(pool)
+	orgID := testsupport.SeedOrganization(t, pool)
 	memberID := seedMember(t, pool)
 	resource := "https://orako.example.com/mcp"
 	now := time.Now()
 
-	secret, tok, err := MintMachineToken(t.Context(), store, now, memberID, resource, nil, "CI agent")
+	secret, tok, err := MintMachineToken(t.Context(), store, now, orgID, memberID, resource, nil, "CI agent")
 	if err != nil {
 		t.Fatalf("MintMachineToken: %v", err)
 	}
@@ -90,10 +92,11 @@ func TestMintMachineTokenProjectScope(t *testing.T) {
 
 	pool := testsupport.RequirePostgres(t)
 	store := NewStore(pool)
+	orgID := testsupport.SeedOrganization(t, pool)
 	memberID := seedMember(t, pool)
 	p1, p2 := uuid.New(), uuid.New()
 
-	secret, tok, err := MintMachineToken(t.Context(), store, time.Now(), memberID, "https://orako.example.com/mcp", []uuid.UUID{p1, p2}, "scoped")
+	secret, tok, err := MintMachineToken(t.Context(), store, time.Now(), orgID, memberID, "https://orako.example.com/mcp", []uuid.UUID{p1, p2}, "scoped")
 	if err != nil {
 		t.Fatalf("MintMachineToken: %v", err)
 	}
@@ -140,7 +143,7 @@ func TestStoreListAndRevokeMachineTokensPerOrg(t *testing.T) {
 	addMemberToProject(t, pool, projA, adminA2)
 	addMemberToProject(t, pool, projB, adminB)
 
-	_, tok, err := MintMachineToken(t.Context(), store, time.Now(), adminA1, resource, nil, "CI agent")
+	_, tok, err := MintMachineToken(t.Context(), store, time.Now(), orgA, adminA1, resource, nil, "CI agent")
 	if err != nil {
 		t.Fatalf("MintMachineToken: %v", err)
 	}
@@ -148,7 +151,7 @@ func TestStoreListAndRevokeMachineTokensPerOrg(t *testing.T) {
 	// A live OAuth-flow token for the SAME minting member must never leak
 	// into ListMachineTokens (it filters by MachineClientID).
 	client := seedClient(t, store)
-	seedTokenPair(t, store, adminA1, client.ID, resource, uuid.New(), nil)
+	seedTokenPair(t, store, orgA, adminA1, client.ID, resource, uuid.New(), nil)
 
 	// The SECOND admin of org A (who minted nothing) sees the token the
 	// FIRST admin minted — a machine token is org infrastructure, not a

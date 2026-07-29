@@ -101,7 +101,7 @@ func (a MCPTokenAuthenticator) Authenticate(ctx context.Context, header string) 
 		return CallerIdentity{}, err
 	}
 
-	identity, err := a.resolveIdentity(ctx, tok.MemberID, tok.ProjectIDs)
+	identity, err := a.resolveIdentity(ctx, tok.OrgID, tok.MemberID, tok.ProjectIDs)
 	if err != nil {
 		return CallerIdentity{}, err
 	}
@@ -150,7 +150,7 @@ func (a MCPTokenAuthenticator) validateTokenState(tok oauth.Token) error {
 // resolveIdentity fetches the token's owning member and resolves
 // CallerIdentity fresh from the RBAC tables — role and org-admin status are
 // never taken from the token, exactly like every other authenticator.
-func (a MCPTokenAuthenticator) resolveIdentity(ctx context.Context, memberID uuid.UUID, tokenScope []uuid.UUID) (CallerIdentity, error) {
+func (a MCPTokenAuthenticator) resolveIdentity(ctx context.Context, orgID, memberID uuid.UUID, tokenScope []uuid.UUID) (CallerIdentity, error) {
 	member, err := a.members.ByID(ctx, memberID)
 	if err != nil {
 		return CallerIdentity{}, fmt.Errorf("resolving mcp token member: %w", err)
@@ -176,7 +176,7 @@ func (a MCPTokenAuthenticator) resolveIdentity(ctx context.Context, memberID uui
 
 	// Restrict to the token's chosen scope (memberships ∩ token.project_ids);
 	// the first survivor is the primary project.
-	scoped := scopeProjects(memberships, tokenScope)
+	scoped := scopeProjectsInOrg(memberships, orgID, tokenScope)
 
 	if len(scoped) > 0 {
 		identity.ProjectIDs = projectIDsOf(scoped)

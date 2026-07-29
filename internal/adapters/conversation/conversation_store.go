@@ -135,11 +135,8 @@ const historyHitColumns = `c.id, c.project_id, p.name, c.title, c.question, c.su
 //	      + 0.3 * (tag/entity overlaps $4 ? 1 : 0) -- explicit facet boost
 //	      + 0.1 * exp(-age_seconds / 30d)          -- recency (newer ranked higher)
 //
-// Deliberately carries NO confidence/contested term: those were kb_entries
-// concepts removed with the old engine; the agent branches on status instead.
-// ALL statuses are eligible — no status filter — so the caller can decide
-// whether to join an open thread, reuse a resolved answer, or re-ask an
-// unanswered (timed_out/dismissed) question.
+// An empty status includes every status; a non-empty status is filtered before
+// ranking and limiting.
 const searchHistorySQL = `
 WITH scope AS (
 	SELECT p.id
@@ -158,14 +155,15 @@ SELECT ` + historyHitColumns + `,
 FROM conversations c
 JOIN projects p ON p.id = c.project_id
 WHERE c.project_id IN (SELECT id FROM scope)
+  AND ($5 = '' OR c.status = $5)
   AND (
         c.fts @@ websearch_to_tsquery('simple', $3)
-     OR similarity(c.search_labels, $3) > $5
+     OR similarity(c.search_labels, $3) > $6
      OR c.tags && $4::text[]
      OR c.entities && $4::text[]
   )
 ORDER BY score DESC, c.created_at DESC
-LIMIT $6
+LIMIT $7
 `
 
 // recentHistorySQL browses the most-recent conversations in scope with NO
@@ -843,14 +841,14 @@ func (s *Store) scanLabels(ctx context.Context, sql string, projectIDs []uuid.UU
 
 // SearchHistory runs the deterministic (embedding-free) history search across
 // projectIDs — see searchHistorySQL for the scope, match arms, and ranking.
-// ALL conversation statuses are eligible. Returns an empty (non-nil) slice when
-// nothing matches.
+// Returns an empty (non-nil) slice when nothing matches.
 func (s *Store) SearchHistory(
 	ctx context.Context,
 	orgID uuid.UUID,
 	projectIDs []uuid.UUID,
 	queryText string,
 	tags []string,
+	status string,
 	topK int,
 ) ([]query.HistoryHit, error) {
 	ids := projectIDs
@@ -858,8 +856,9 @@ func (s *Store) SearchHistory(
 		ids = []uuid.UUID{}
 	}
 
-	rows, err := s.pool.Query(ctx, searchHistorySQL,
-		orgID, ids, queryText, stringSliceOrEmpty(tags), historyTrgmThreshold, topK,
+	rows, err := s.pool.Query(
+		ctx, searchHistorySQL,
+		orgID, ids, queryText, stringSliceOrEmpty(tags), status, historyTrgmThreshold, topK,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("searching history: %w", adaptererr.Decode(err))

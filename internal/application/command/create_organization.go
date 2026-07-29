@@ -108,13 +108,6 @@ func (h CreateOrganizationHandler) Handle(ctx context.Context, cmd CreateOrganiz
 		}
 	}
 
-	// Community-edition org cap (nil gate = no enforcement).
-	if h.gate != nil {
-		if err := h.gate.AllowNewOrg(ctx); err != nil {
-			return CreateOrganizationResult{}, err
-		}
-	}
-
 	orgID := uuid.New()
 	globalProjectID := uuid.New()
 	memberID := uuid.New()
@@ -158,6 +151,12 @@ func (h CreateOrganizationHandler) Handle(ctx context.Context, cmd CreateOrganiz
 // the org_members write, not the project membership.
 func (h CreateOrganizationHandler) provision(ctx context.Context, creatorAccountID uuid.UUID, org model.Organization, globalProject model.Project, creatorMember model.Member) error {
 	return h.txor.WithTx(ctx, func(ctx context.Context) error {
+		if h.gate != nil {
+			if err := h.gate.AllowNewOrg(ctx); err != nil {
+				return err
+			}
+		}
+
 		if err := h.orgs.Create(ctx, org); err != nil {
 			return err
 		}

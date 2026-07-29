@@ -24,9 +24,9 @@ import (
 	"github.com/orako-io/core/internal/application/service"
 )
 
-// session is the narrow lifecycle the supervisor manages. *discordgo.Session
+// Session is the narrow lifecycle the supervisor manages. *discordgo.Session
 // satisfies it directly; tests inject a fake to avoid a live socket.
-type session interface {
+type Session interface {
 	Open() error
 	Close() error
 }
@@ -34,7 +34,7 @@ type session interface {
 // SessionFactory builds and configures a session for a bot token. The
 // production factory (NewDiscordSessionFactory) registers the Discord
 // gateway's handlers on a real discordgo.Session before returning it.
-type SessionFactory func(botToken string) (session, error)
+type SessionFactory func(botToken string) (Session, error)
 
 // allProvidersLoader is the narrow store dependency for the boot-time sync.
 // *integration.ProjectProviderStore satisfies it (service.AllProvidersLoader).
@@ -45,7 +45,7 @@ type allProvidersLoader interface {
 // entry tracks one open session and how many projects currently reference its
 // bot token.
 type entry struct {
-	sess session
+	sess Session
 	refs int
 }
 
@@ -71,23 +71,12 @@ func NewSupervisor(factory SessionFactory, logger *slog.Logger) *Supervisor {
 	}
 }
 
-// TestSession is an exported alias for the unexported session lifecycle
-// interface, so external tests can inject a fake session without a live
-// socket. Test-only seam.
-type TestSession = session
-
-// NewSupervisorForTest builds a Supervisor with an injected factory, bypassing
-// the production discordgo wiring in NewDiscordSessionFactory. Test-only seam.
-func NewSupervisorForTest(factory func(botToken string) (TestSession, error), logger *slog.Logger) *Supervisor {
-	return NewSupervisor(SessionFactory(factory), logger)
-}
-
 // NewDiscordSessionFactory builds the production SessionFactory: a real
 // discordgo.Session with gw's MESSAGE_CREATE/INTERACTION_CREATE handlers and
 // intents registered (Session.Open is not called here — EnsureSession does
 // that uniformly for the real and test factories).
 func NewDiscordSessionFactory(gw *discord.Gateway) SessionFactory {
-	return func(botToken string) (session, error) {
+	return func(botToken string) (Session, error) {
 		s, err := discordgo.New("Bot " + botToken)
 		if err != nil {
 			return nil, fmt.Errorf("gatewaymgr: building discordgo session: %w", err)
@@ -248,7 +237,7 @@ func (s *Supervisor) closeEntry(e *entry) {
 }
 
 // closeSession closes sess, logging any error. Must be called unlocked.
-func (s *Supervisor) closeSession(sess session) {
+func (s *Supervisor) closeSession(sess Session) {
 	if err := sess.Close(); err != nil {
 		s.logger.Warn("gatewaymgr: closing discord gateway session", slog.Any("error", err))
 	}

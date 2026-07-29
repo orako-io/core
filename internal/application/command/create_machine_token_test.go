@@ -22,13 +22,21 @@ type fakeMachineTokenMinter struct {
 	err           error `exhaustruct:"optional"`
 	calls         int
 	gotMemberID   uuid.UUID
+	gotOrgID      uuid.UUID
 	gotProjectIDs []uuid.UUID
 	gotLabel      string
 }
 
-func (f *fakeMachineTokenMinter) MintMachineToken(_ context.Context, memberID uuid.UUID, projectIDs []uuid.UUID, label string) (MintedMachineToken, error) {
+func (f *fakeMachineTokenMinter) MintMachineToken(
+	_ context.Context,
+	orgID uuid.UUID,
+	memberID uuid.UUID,
+	projectIDs []uuid.UUID,
+	label string,
+) (MintedMachineToken, error) {
 	f.calls++
 	f.gotMemberID = memberID
+	f.gotOrgID = orgID
 	f.gotProjectIDs = projectIDs
 	f.gotLabel = label
 
@@ -94,15 +102,15 @@ func TestCreateMachineToken_AdminMints(t *testing.T) {
 		t.Errorf("mint memberID = %s, want the caller %s", minter.gotMemberID, memberID)
 	}
 
+	if minter.gotOrgID != orgID {
+		t.Errorf("mint orgID = %s, want %s", minter.gotOrgID, orgID)
+	}
+
 	if len(minter.gotProjectIDs) != 1 || minter.gotProjectIDs[0] != projID {
 		t.Errorf("mint projectIDs = %v, want [%s]", minter.gotProjectIDs, projID)
 	}
 }
 
-// TestCreateMachineToken_UnscopedIsANoOpCheck proves an empty ProjectIDs
-// (unscoped) skips the org-membership check entirely — it means "every
-// project the member can reach", not "every project in the org", so there is
-// nothing to verify against orgID.
 func TestCreateMachineToken_UnscopedIsANoOpCheck(t *testing.T) {
 	t.Parallel()
 

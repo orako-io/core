@@ -53,12 +53,12 @@ func MustNewListInboxHandler(reader InboxReader, pool openPoolReader) ListInboxH
 func (h ListInboxHandler) Handle(ctx context.Context, q ListInboxQuery) ([]InboxItem, error) {
 	pool, err := h.pool.OpenPoolFor(ctx, q.ResponderMemberID)
 	if err != nil {
-		return nil, err
+		return nil, translateReadError(err, "inbox")
 	}
 
 	convs, err := h.fetch(ctx, q)
 	if err != nil {
-		return nil, err
+		return nil, translateReadError(err, "inbox")
 	}
 
 	items := make([]InboxItem, 0, len(pool)+len(convs))

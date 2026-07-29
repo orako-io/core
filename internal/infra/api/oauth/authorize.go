@@ -233,7 +233,7 @@ func (s *Server) ServeAuthorizeApprove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	redirect, err := s.mintAuthCode(r.Context(), client, params, resource, member, projectIDs)
+	redirect, err := s.mintAuthCode(r.Context(), client, params, resource, orgID, member, projectIDs)
 	if err != nil {
 		writeOAuthError(w, http.StatusInternalServerError, "server_error", err.Error())
 
@@ -247,7 +247,7 @@ func (s *Server) ServeAuthorizeApprove(w http.ResponseWriter, r *http.Request) {
 // params, resource and member, and returns redirect_uri with ?code=&state=
 // appended — the JSON-API equivalent of phase-2's issueAuthCode, which wrote
 // an HTTP 302 directly instead of returning the URL to the caller.
-func (s *Server) mintAuthCode(ctx context.Context, client Client, params authorizeParams, resource string, member MemberIdentity, projectIDs []uuid.UUID) (string, error) {
+func (s *Server) mintAuthCode(ctx context.Context, client Client, params authorizeParams, resource string, orgID uuid.UUID, member MemberIdentity, projectIDs []uuid.UUID) (string, error) {
 	raw, hash, err := newOpaqueSecret("")
 	if err != nil {
 		return "", fmt.Errorf("could not generate authorization code: %w", err)
@@ -255,6 +255,7 @@ func (s *Server) mintAuthCode(ctx context.Context, client Client, params authori
 
 	code := AuthCode{
 		ID:                  uuid.New(),
+		OrgID:               orgID,
 		ClientID:            client.ID,
 		RedirectURI:         params.RedirectURI,
 		CodeChallenge:       params.Challenge,

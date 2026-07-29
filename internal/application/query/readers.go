@@ -34,6 +34,7 @@ type MemberReader interface {
 	// ReadMember returns the member as a caller-facing view. Returns
 	// adaptererr.ErrNotFound when absent.
 	ReadMember(ctx context.Context, id uuid.UUID) (MemberView, error)
+	ReadMembers(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]MemberView, error)
 }
 
 // PresenceReader is the read-side port for a member's online hint.
@@ -42,6 +43,7 @@ type PresenceReader interface {
 	// hint). Returns adaptererr.ErrNotFound when no presence record exists yet;
 	// callers treat any error as "offline".
 	ReadOnline(ctx context.Context, memberID uuid.UUID) (bool, error)
+	ReadOnlineByMembers(ctx context.Context, memberIDs []uuid.UUID) (map[uuid.UUID]bool, error)
 }
 
 // ProjectsByMemberReader is the read-side port for listing a member's projects.

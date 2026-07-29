@@ -39,7 +39,7 @@ func MustNewListConnectedChannelsHandler(reader ConfiguredChannelsReader) ListCo
 func (h ListConnectedChannelsHandler) Handle(ctx context.Context, q ListConnectedChannelsQuery) ([]string, error) {
 	kinds, err := h.reader.ConfiguredKinds(ctx, q.ProjectID)
 	if err != nil {
-		return nil, err
+		return nil, translateReadError(err, "provider_channels")
 	}
 
 	// The dashboard channel is always available and needs no configuration.
