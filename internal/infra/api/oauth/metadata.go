@@ -30,10 +30,9 @@ func (s *Server) ServeASMetadata(w http.ResponseWriter, _ *http.Request) {
 }
 
 // ServePRM serves RFC 9728 OAuth 2.0 Protected Resource Metadata at
-// /.well-known/oauth-protected-resource, advertising this Authorization
-// Server as the issuer for the single hosted MCP resource ({base}/mcp). The
-// MCP endpoint's 401 (phase 3) carries a WWW-Authenticate resource_metadata
-// pointer at this same URL.
+// both the root compatibility path and the RFC 9728 path-scoped location for
+// the hosted MCP resource ({base}/mcp). The MCP endpoint's 401 carries a
+// WWW-Authenticate resource_metadata pointer to the path-scoped document.
 func (s *Server) ServePRM(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"resource":                 s.ResourceURL(),
@@ -45,7 +44,7 @@ func (s *Server) ServePRM(w http.ResponseWriter, _ *http.Request) {
 // PRMURL is the absolute URL of the protected-resource metadata document, the
 // value every 401 response's resource_metadata challenge parameter points at.
 func (s *Server) PRMURL() string {
-	return s.baseURL + "/.well-known/oauth-protected-resource"
+	return s.baseURL + "/.well-known/oauth-protected-resource/mcp"
 }
 
 // writeJSON encodes v as the JSON response body with the given status.
