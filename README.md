@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/readme-banner.png" alt="Orako — your agent asks the right human, at the right moment" width="1280">
+</p>
+
 # Orako
 
 Orako lets AI agents ask the right teammate for missing context, wait for the

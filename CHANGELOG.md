@@ -7,6 +7,19 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-07-29
+
+### Added
+
+- Publish canonical self-hosting, agent connection, messaging integration,
+  operations, and backup/restore guides on GitHub and orako.io.
+
+### Security
+
+- Scope OAuth and machine tokens to the active organization.
+- Make local authentication and Community resource-limit checks transactional.
+- Harden project and provider reads against cross-organization access.
+
 ## [0.1.2] - 2026-07-29
 
 ### Fixed
@@ -34,7 +47,8 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Updated React Router to 8.3.0 to address GHSA-qwww-vcr4-c8h2.
 
-[Unreleased]: https://github.com/orako-io/core/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/orako-io/core/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/orako-io/core/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/orako-io/core/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/orako-io/core/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/orako-io/core/releases/tag/v0.1.0
