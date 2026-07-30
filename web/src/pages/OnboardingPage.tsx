@@ -1,6 +1,6 @@
 // Invited-member onboarding wizard (cli-login phase 4): a first-run member
-// walks Your info → Your expertise → How Orako reaches you → Connect your
-// agent, then lands in the dashboard. Onboarding is mandatory: there is no skip —
+// walks Your info → Your expertise → How Orako reaches you, then lands in the
+// dashboard. Onboarding is mandatory: there is no skip —
 // an invited member walks every step before reaching the app (a name + a contact
 // channel are the minimum that make them routable). Every field stays re-editable
 // later in Settings. Full-viewport, no <Layout> chrome, matching /welcome.
@@ -11,18 +11,18 @@ import { api, connectDiscord, communityInvites, type CommunityInvites, type Memb
 import { useIdentity } from '../lib/identity'
 import { markOnboardingRedirect } from '../lib/onboarding-redirect'
 import { useToast, toastMessage } from '../lib/toast'
+import { supabase } from '../lib/supabase'
 import { Button } from '../components/Button'
 import { Input } from '../components/Input'
 import { ChipMultiSelect } from '../components/ChipMultiSelect'
 import { DiscordIdHint } from '../components/DiscordIdHint'
 import { Icon, LogoTile } from '../components/Icon'
 import { ProviderLogo } from '../components/ProviderLogos'
-import { ConnectAgent } from './ConnectAgentPage'
 import { EXPERTISE_TAGS } from '../lib/expertise'
 import { T } from '../lib/theme'
 import { validateDeliveryBinding } from '../lib/validation'
 
-const STEP_TITLES = ['Your info', 'Your expertise', 'How Orako reaches you', 'Connect your agent']
+const STEP_TITLES = ['Your info', 'Your expertise', 'How Orako reaches you']
 const TOTAL_STEPS = STEP_TITLES.length
 const STEP_STORAGE_PREFIX = 'orako:onboarding-step:'
 
@@ -116,7 +116,7 @@ export function OnboardingPage() {
     discordUserId?: string
   }) {
     await api.updateMember(patch)
-    setStep(3)
+    goHome()
   }
 
   return (
@@ -170,7 +170,6 @@ export function OnboardingPage() {
                 onError={e => toast.error(toastMessage(e))}
               />
             )}
-            {step === 3 && <Step3Agent onFinish={goHome} />}
           </div>
 
           <p style={{ fontSize: 13, color: T.faint, textAlign: 'center', marginTop: 18 }}>
@@ -186,7 +185,8 @@ function loadSavedStep(memberID: string): number {
   if (!memberID) return 0
   try {
     const saved = Number(localStorage.getItem(STEP_STORAGE_PREFIX + memberID))
-    return Number.isInteger(saved) && saved >= 0 && saved < TOTAL_STEPS ? saved : 0
+    if (!Number.isInteger(saved) || saved < 0) return 0
+    return Math.min(saved, TOTAL_STEPS - 1)
   } catch {
     return 0
   }
@@ -292,15 +292,21 @@ function Step1Info({
 
   useEffect(() => {
     let cancelled = false
-    api
-      .getMember()
-      .then(res => {
+    Promise.all([
+      api.getMember(),
+      supabase?.auth.getSession().catch(() => null) ?? Promise.resolve(null),
+    ])
+      .then(([res, sessionResult]) => {
         if (cancelled) return
-        setFirstName(res.member?.firstName ?? '')
-        setLastName(res.member?.lastName ?? '')
-        // Prefill display name with the invite email so the field never
-        // looks blank; the member overwrites it with a real name here.
-        setDisplayName(res.member?.displayName ?? '')
+        const member = res.member
+        const profile = profileDefaults(sessionResult?.data.session?.user.user_metadata)
+        setFirstName(member?.firstName || profile.firstName)
+        setLastName(member?.lastName || profile.lastName)
+        setDisplayName(
+          member?.displayName && member.displayName !== member.email
+            ? member.displayName
+            : profile.displayName || member?.displayName || '',
+        )
         setGitHandle(res.member?.gitHandle ?? '')
       })
       .catch(() => {})
@@ -663,6 +669,7 @@ function Step2Reach({
 
       <StepFooter
         onContinue={() => void handleContinue()}
+        continueLabel="Finish"
         continueLoading={saving}
         continueDisabled={loading || !bindingIsValid}
       />
@@ -825,26 +832,28 @@ function JoinServerCard({ invites, discordConnected }: { invites: CommunityInvit
   )
 }
 
-// ── Step 4 · Connect your agent ──────────────────────────────────────────────
+function profileDefaults(metadata: Record<string, unknown> | undefined): {
+  firstName: string
+  lastName: string
+  displayName: string
+} {
+  const value = (...keys: string[]) => {
+    for (const key of keys) {
+      const candidate = metadata?.[key]
+      if (typeof candidate === 'string' && candidate.trim()) return candidate.trim()
+    }
+    return ''
+  }
 
-function Step3Agent({ onFinish }: { onFinish: () => void }) {
-  return (
-    <div>
-      <h4 style={{ fontSize: 16, fontWeight: 700, color: T.text, margin: '0 0 6px' }}>Connect your agent</h4>
-      <p style={{ fontSize: 13.5, color: T.muted, margin: 0 }}>
-        Register Orako's remote MCP server in Claude Code, Codex or any MCP client, then authorize once inside the
-        agent. Takes about a minute.
-      </p>
+  let firstName = value('given_name', 'first_name')
+  let lastName = value('family_name', 'last_name')
+  const displayName = value('full_name', 'name')
 
-      <div style={{ marginTop: 22 }}>
-        <ConnectAgent />
-      </div>
+  if ((!firstName || !lastName) && displayName) {
+    const [first, ...rest] = displayName.split(/\s+/)
+    firstName ||= first
+    lastName ||= rest.join(' ')
+  }
 
-      <Reassurance>
-        You can always come back to this from Connect agent in the sidebar — nothing here is a one-time offer.
-      </Reassurance>
-
-      <StepFooter onContinue={onFinish} continueLabel="Finish" />
-    </div>
-  )
+  return { firstName, lastName, displayName }
 }
