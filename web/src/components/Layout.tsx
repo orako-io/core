@@ -590,23 +590,7 @@ export function Layout({ children }: { children: ReactNode }) {
           </div>
 
           {/* Plan / info card */}
-          {collapsed ? null : !isOrgAdmin ? (
-            <div
-              style={{
-                marginTop: 'auto',
-                border: `1px solid ${T.border}`,
-                borderRadius: T.rLg,
-                padding: 14,
-                background: T.surfaceAlt,
-                fontSize: 12,
-                lineHeight: 1.55,
-                color: T.subtle,
-              }}
-            >
-              <div style={{ fontWeight: 600, color: T.body, marginBottom: 4 }}>You&rsquo;re a specialist</div>
-              {orgName || 'Your org'} handles the org setup and billing. You just ask, answer and search.
-            </div>
-          ) : __SAAS__ ? (
+          {collapsed || !isOrgAdmin ? null : __SAAS__ ? (
             showTrialCard ? (
               <div
                 style={{

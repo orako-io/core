@@ -184,11 +184,13 @@ export function AuthorizePage() {
       .listProjectsForOrg(selectedOrgId)
       .then(result => {
         if (!cancelled) {
-          setProjects((result.projects ?? []).map(project => ({
+          const loadedProjects = (result.projects ?? []).map(project => ({
             id: project.id,
             name: project.name,
             orgId: selectedOrgId,
-          })))
+          }))
+          setProjects(loadedProjects)
+          setSelectedProjectIds(loadedProjects.length === 1 ? [loadedProjects[0].id] : [])
         }
       })
       .catch(() => {
