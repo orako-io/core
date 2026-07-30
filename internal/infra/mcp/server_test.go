@@ -142,6 +142,9 @@ func (f *fakeGetConversation) Handle(_ context.Context, q query.GetConversationQ
 		Messages: []query.MessageView{
 			{ID: uuid.New(), AuthorMemberID: q.CallerMemberID, Role: model.MessageRoleQuestion, Body: "hi"},
 		},
+		Participants: []query.Participant{{
+			MemberID: q.CallerMemberID, DisplayName: "Ada", Role: "asker",
+		}},
 	}, nil
 }
 
@@ -487,6 +490,27 @@ func TestValidTokenDiscoversInstructionsAndTools(t *testing.T) {
 	}
 }
 
+func TestGetConversationReturnsReadableAuthor(t *testing.T) {
+	t.Parallel()
+
+	tf := newTestFixture(t)
+	cs := connectMCP(t, tf, tf.memberToken)
+
+	var out GetConversationOutput
+	callTool(t, cs, toolGetConversation, map[string]any{
+		"conversation_id": uuid.New().String(),
+	}, &out)
+
+	if len(out.Messages) != 1 {
+		t.Fatalf("messages len = %d, want 1", len(out.Messages))
+	}
+
+	want := "Ada (" + tf.deps.getConversation.got.CallerMemberID.String() + ")"
+	if out.Messages[0].Author != want {
+		t.Fatalf("author = %q, want %q", out.Messages[0].Author, want)
+	}
+}
+
 // TestLegacyInitializeRemainsSupported proves stateless transport still
 // accepts the previous initialize handshake used by older MCP clients.
 func TestLegacyInitializeRemainsSupported(t *testing.T) {
@@ -786,8 +810,8 @@ func TestActionableErrorGuidance(t *testing.T) {
 	}
 
 	err = actionableError(errs.ForbiddenError{Action: "view conversation"}, toolGetConversation)
-	if !strings.Contains(err.Error(), "org admin") {
-		t.Errorf("forbidden guidance missing admin hint: %v", err)
+	if !strings.Contains(err.Error(), "add you") {
+		t.Errorf("forbidden guidance missing participant hint: %v", err)
 	}
 
 	err = actionableError(errs.InternalError{Err: errors.New("postgres password leaked")}, toolGetConversation)

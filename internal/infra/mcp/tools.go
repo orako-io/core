@@ -193,6 +193,9 @@ type ExpertOutput struct {
 	MemberID    string   `json:"member_id"`
 	DisplayName string   `json:"display_name"`
 	Domains     []string `json:"domains"`
+	// Mention is the native provider token to use when addressing this person
+	// inside a relayed message, for example <@123> on Discord.
+	Mention string `json:"mention,omitempty" exhaustruct:"optional"`
 	// DeliveryChannel is where Orako reaches this expert (discord/slack/
 	// teams/telegram/dashboard). Format the question for this platform.
 	DeliveryChannel string `json:"delivery_channel"`
@@ -271,8 +274,10 @@ type GetConversationInput struct {
 type MessageOutput struct {
 	MessageID      string `json:"message_id"`
 	AuthorMemberID string `json:"author_member_id"`
-	Role           string `json:"role"`
-	Body           string `json:"body"`
+	// Author combines the readable name with the stable member id.
+	Author string `json:"author,omitempty" exhaustruct:"optional"`
+	Role   string `json:"role"`
+	Body   string `json:"body"`
 	// Source is how the message was authored: "human", "agent" (posted by a
 	// coding agent), or "system". When the OTHER party's messages are "agent",
 	// you are talking to another agent — offer to switch to sync mode.
@@ -678,6 +683,7 @@ func listExpertsHandler(h listExpertser) sdkmcp.ToolHandlerFor[ListExpertsInput,
 				MemberID:        sp.MemberID.String(),
 				DisplayName:     sp.DisplayName,
 				Domains:         sp.Domains,
+				Mention:         sp.Mention,
 				DeliveryChannel: string(channel),
 				MaxMessageChars: maxMessageChars(channel),
 			})
@@ -798,6 +804,11 @@ func getConversationHandler(h getConversationer) sdkmcp.ToolHandlerFor[GetConver
 
 		msgs := make([]MessageOutput, 0, len(view.Messages))
 
+		participantNames := make(map[uuid.UUID]string, len(view.Participants))
+		for _, participant := range view.Participants {
+			participantNames[participant.MemberID] = participant.DisplayName
+		}
+
 		for _, m := range view.Messages {
 			atts := make([]AttachmentOutput, 0, len(m.Attachments))
 			for _, a := range m.Attachments {
@@ -810,9 +821,22 @@ func getConversationHandler(h getConversationer) sdkmcp.ToolHandlerFor[GetConver
 				})
 			}
 
+			author := ""
+
+			if m.AuthorMemberID != uuid.Nil {
+				name := strings.TrimSpace(participantNames[m.AuthorMemberID])
+
+				if name == "" {
+					name = "Unknown member"
+				}
+
+				author = fmt.Sprintf("%s (%s)", name, m.AuthorMemberID)
+			}
+
 			msgs = append(msgs, MessageOutput{
 				MessageID:      m.ID.String(),
 				AuthorMemberID: m.AuthorMemberID.String(),
+				Author:         author,
 				Role:           messageRoleToString(m.Role),
 				Body:           m.Body,
 				Source:         string(m.Source),
@@ -1262,7 +1286,10 @@ func actionableError(err error, tool string) error {
 
 	var forb errs.ForbiddenError
 	if errors.As(err, &forb) {
-		return fmt.Errorf("%w; ask a project lead or org admin before retrying", err)
+		return fmt.Errorf(
+			"%w; open threads are limited to their participants — ask someone already on the thread to add you, or ask an org admin",
+			err,
+		)
 	}
 
 	var internal errs.InternalError

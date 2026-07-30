@@ -121,6 +121,40 @@ func TestGateway_HandleMessageCreate_ExplicitReplyFunnel(t *testing.T) {
 	}
 }
 
+func TestGateway_ResolvesKnownDiscordMentions(t *testing.T) {
+	t.Parallel()
+
+	members := newFakeMemberStore()
+	authorID := uuid.New()
+	members.add(model.Member{ID: authorID, DiscordUserID: "discord-author-1"})
+	targetID := uuid.New()
+	members.add(model.Member{
+		ID: targetID, DisplayName: "Jordan", DiscordUserID: "1359603218912514080",
+	})
+
+	ledger := newFakeLedger()
+	ledger.add("dm-channel-1", "msg-1", model.ProviderMessage{ConversationID: uuid.New()})
+	followUp := &fakeFollowUpper{}
+	gw := discord.NewGateway(members, ledger, newFakeSurfaces(), followUp, nil, discardLogger())
+
+	msg := &discordgo.MessageCreate{Message: &discordgo.Message{
+		ChannelID: "dm-channel-1",
+		Content:   "Il faudrait demander a <@1359603218912514080>",
+		Author:    &discordgo.User{ID: "discord-author-1", Bot: false},
+		Mentions:  []*discordgo.User{{ID: "1359603218912514080"}},
+		MessageReference: &discordgo.MessageReference{
+			MessageID: "msg-1",
+		},
+	}}
+
+	gw.HandleMessageCreateForTest(nil, msg)
+
+	want := "Il faudrait demander a Jordan (<@1359603218912514080>)"
+	if followUp.last.Message != want {
+		t.Fatalf("FollowUp Message = %q, want %q", followUp.last.Message, want)
+	}
+}
+
 // TestGateway_HandleMessageCreate_PlainDMReply_Correlates proves a plain DM
 // message (no explicit Discord Reply) still correlates via the channel's latest
 // open conversation and dispatches FollowUp — a Discord DM is 1:1, so the

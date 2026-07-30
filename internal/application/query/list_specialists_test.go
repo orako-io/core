@@ -33,6 +33,8 @@ func TestListExperts_ReturnsAllMembersWithDomains(t *testing.T) {
 	memberReader := newFakeMemberReader()
 	alice, _ := model.NewMember(m1, "alice@example.com", "Alice")
 	alice.Status = model.MemberStatusActive
+	alice.DeliveryChannel = model.DeliveryChannelDiscord
+	alice.DiscordUserID = "1359603218912514080"
 	bob, _ := model.NewMember(m2, "bob@example.com", "Bob")
 	bob.Status = model.MemberStatusActive
 	memberReader.members[m1] = alice
@@ -57,6 +59,9 @@ func TestListExperts_ReturnsAllMembersWithDomains(t *testing.T) {
 
 	if got := byID[m1].Domains; len(got) != 2 || got[0] != "Backend" || got[1] != "CTO" {
 		t.Errorf("m1 Domains = %v, want [Backend CTO]", got)
+	}
+	if got := byID[m1].Mention; got != "<@1359603218912514080>" {
+		t.Errorf("m1 Mention = %q, want Discord mention", got)
 	}
 
 	if got := byID[m2].Domains; len(got) != 0 {

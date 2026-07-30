@@ -29,6 +29,8 @@ type Expert struct {
 	// agent uses it to format its question for that platform and respect the
 	// platform's message-length limit when composing the ask.
 	DeliveryChannel model.DeliveryChannel
+	// Mention is the provider-native mention token when one is available.
+	Mention string `exhaustruct:"optional"`
 }
 
 // MessageView is the read-side DTO for a single conversation message.

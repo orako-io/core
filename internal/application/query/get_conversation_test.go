@@ -102,9 +102,9 @@ func TestGetConversation_NotFound(t *testing.T) {
 	}
 }
 
-// TestGetConversation_Visibility proves the new authorization check: the asker,
-// the assigned responder, and an org admin are allowed; an unrelated member and
-// a nil caller are denied with a ForbiddenError.
+// TestGetConversation_Visibility proves open-thread authorization: the asker,
+// assigned responder, explicitly-added participant, and an org admin are
+// allowed; an unrelated member and a nil caller are denied.
 func TestGetConversation_Visibility(t *testing.T) {
 	t.Parallel()
 
@@ -113,6 +113,7 @@ func TestGetConversation_Visibility(t *testing.T) {
 	convID := uuid.New()
 	projectID := uuid.New()
 	otherProject := uuid.New()
+	addedID := uuid.New()
 
 	reader := newFakeConversationReader()
 	conv, _ := model.NewConversation(convID, projectID, askerID, "q?")
@@ -120,7 +121,10 @@ func TestGetConversation_Visibility(t *testing.T) {
 	reader.conversations[convID] = conv
 	reader.messages[convID] = []model.Message{}
 
-	h := MustNewGetConversationHandler(reader, newFakeCandidateReader(), &fakeParticipantsNames{}, &fakeParticipantsNames{}, nil, nil)
+	participants := &fakeParticipantsNames{added: map[uuid.UUID][]model.ConversationParticipant{
+		convID: {{MemberID: addedID}},
+	}}
+	h := MustNewGetConversationHandler(reader, newFakeCandidateReader(), participants, participants, nil, nil)
 
 	cases := []struct {
 		name      string
@@ -131,6 +135,7 @@ func TestGetConversation_Visibility(t *testing.T) {
 	}{
 		{"asker allowed", askerID, false, nil, true},
 		{"assigned responder allowed", specID, false, nil, true},
+		{"explicitly-added participant allowed", addedID, false, nil, true},
 		{"org admin of the conv's project allowed", uuid.New(), true, []uuid.UUID{projectID}, true},
 		{"org admin of ANOTHER project denied (H1 cross-tenant)", uuid.New(), true, []uuid.UUID{otherProject}, false},
 		{"org admin with no projects denied", uuid.New(), true, nil, false},
@@ -161,6 +166,47 @@ func TestGetConversation_Visibility(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestGetConversation_ResolvedHistoryVisibleToProjectMembers(t *testing.T) {
+	t.Parallel()
+
+	projectID := uuid.New()
+	otherProjectID := uuid.New()
+	convID := uuid.New()
+	projectMemberID := uuid.New()
+
+	reader := newFakeConversationReader()
+	conv, _ := model.NewConversation(convID, projectID, uuid.New(), "resolved question")
+	conv.Status = model.ConversationStatusResolved
+	reader.conversations[convID] = conv
+
+	h := MustNewGetConversationHandler(
+		reader,
+		newFakeCandidateReader(),
+		&fakeParticipantsNames{},
+		&fakeParticipantsNames{},
+		nil,
+		nil,
+	)
+
+	if _, err := h.Handle(t.Context(), GetConversationQuery{
+		ConversationID:   convID,
+		CallerMemberID:   projectMemberID,
+		CallerProjectIDs: []uuid.UUID{projectID},
+	}); err != nil {
+		t.Fatalf("project member must read resolved history: %v", err)
+	}
+
+	_, err := h.Handle(t.Context(), GetConversationQuery{
+		ConversationID:   convID,
+		CallerMemberID:   projectMemberID,
+		CallerProjectIDs: []uuid.UUID{otherProjectID},
+	})
+	var forbidden errs.ForbiddenError
+	if !errors.As(err, &forbidden) {
+		t.Fatalf("member outside the project must be forbidden, got %v", err)
 	}
 }
 

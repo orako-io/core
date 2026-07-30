@@ -294,16 +294,18 @@ func (f *fakeAlertRoutingByProject) ConfiguredProvidersWithAlertChannels(
 	return out, nil
 }
 
-// fakeParticipantsNames is a no-op fake for the participants/names batch
-// readers: no explicitly-added participants, no resolvable names.
-type fakeParticipantsNames struct{}
+// fakeParticipantsNames serves the participants/names batch readers.
+type fakeParticipantsNames struct {
+	added map[uuid.UUID][]model.ConversationParticipant
+	names map[uuid.UUID]string
+}
 
 func (f *fakeParticipantsNames) ParticipantsByConversations(_ context.Context, _ []uuid.UUID) (map[uuid.UUID][]model.ConversationParticipant, error) {
-	return map[uuid.UUID][]model.ConversationParticipant{}, nil
+	return f.added, nil
 }
 
 func (f *fakeParticipantsNames) MemberNamesByIDs(_ context.Context, _ []uuid.UUID) (map[uuid.UUID]string, error) {
-	return map[uuid.UUID]string{}, nil
+	return f.names, nil
 }
 
 func (f *fakeParticipantsNames) ActiveCandidatesByConversations(_ context.Context, _ []uuid.UUID) (map[uuid.UUID][]uuid.UUID, error) {
