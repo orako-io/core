@@ -41,6 +41,10 @@ func TestMetadataDocuments(t *testing.T) {
 		t.Errorf("issuer = %v, want %v", as["issuer"], srv.baseURL)
 	}
 
+	if srv.PRMURL() != srv.baseURL+"/.well-known/oauth-protected-resource/mcp" {
+		t.Errorf("PRMURL = %v, want path-scoped MCP metadata URL", srv.PRMURL())
+	}
+
 	if as["authorization_response_iss_parameter_supported"] != true {
 		t.Errorf(
 			"authorization_response_iss_parameter_supported = %v, want true",
@@ -58,26 +62,30 @@ func TestMetadataDocuments(t *testing.T) {
 		t.Errorf("grant_types_supported = %v, want both authorization_code and refresh_token", grants)
 	}
 
-	prmResp, err := http.Get(ts.URL + "/.well-known/oauth-protected-resource") //nolint:noctx // test
-	if err != nil {
-		t.Fatalf("GET PRM: %v", err)
-	}
+	for _, path := range []string{
+		"/.well-known/oauth-protected-resource",
+		"/.well-known/oauth-protected-resource/mcp",
+	} {
+		prmResp, err := http.Get(ts.URL + path) //nolint:noctx // test
+		if err != nil {
+			t.Fatalf("GET PRM %s: %v", path, err)
+		}
 
-	defer prmResp.Body.Close() //nolint:errcheck // test helper
+		var prm map[string]any
+		if err := json.NewDecoder(prmResp.Body).Decode(&prm); err != nil {
+			prmResp.Body.Close() //nolint:errcheck // test helper
+			t.Fatalf("decoding PRM %s: %v", path, err)
+		}
+		prmResp.Body.Close() //nolint:errcheck // test helper
 
-	var prm map[string]any
+		if prm["resource"] != srv.ResourceURL() {
+			t.Errorf("PRM %s resource = %v, want %v", path, prm["resource"], srv.ResourceURL())
+		}
 
-	if err := json.NewDecoder(prmResp.Body).Decode(&prm); err != nil {
-		t.Fatalf("decoding PRM: %v", err)
-	}
-
-	if prm["resource"] != srv.ResourceURL() {
-		t.Errorf("PRM resource = %v, want %v", prm["resource"], srv.ResourceURL())
-	}
-
-	servers, _ := prm["authorization_servers"].([]any)
-	if len(servers) != 1 || servers[0] != srv.baseURL {
-		t.Errorf("PRM authorization_servers = %v, want [%v]", servers, srv.baseURL)
+		servers, _ := prm["authorization_servers"].([]any)
+		if len(servers) != 1 || servers[0] != srv.baseURL {
+			t.Errorf("PRM %s authorization_servers = %v, want [%v]", path, servers, srv.baseURL)
+		}
 	}
 }
 

@@ -98,6 +98,7 @@ func (s *Server) ResourceURL() string {
 func (s *Server) RegisterRoutes(r chi.Router) {
 	r.Get("/.well-known/oauth-authorization-server", s.ServeASMetadata)
 	r.Get("/.well-known/oauth-protected-resource", s.ServePRM)
+	r.Get("/.well-known/oauth-protected-resource/mcp", s.ServePRM)
 	r.Post("/register", s.ServeRegister)
 	r.Get("/oauth/authorize/client", s.ServeAuthorizeClientInfo)
 	r.Post("/oauth/authorize/approve", s.ServeAuthorizeApprove)
