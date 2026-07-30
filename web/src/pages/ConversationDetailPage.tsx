@@ -186,6 +186,8 @@ export function ConversationDetailPage() {
   const createdAt = summary?.createdAt ?? messages[0]?.at
 
   const canFollowUp = norm === 'open' || norm === 'answered'
+  const lastAnswer = [...messages].reverse().find(message => message.role === 2)
+  const canResolve = canFollowUp && lastAnswer != null
   const savedToKb = norm === 'answered' || norm === 'resolved'
 
   async function sendFollowUp() {
@@ -222,8 +224,7 @@ export function ConversationDetailPage() {
   // server-side — no agent round-trip, nothing to type.
   async function doResolve() {
     if (resolving) return
-    const lastHuman = [...messages].reverse().find(m => m.source !== 'agent' && m.role !== 4)
-    const resolution = (lastHuman?.body || question || '').trim()
+    const resolution = (lastAnswer?.body || '').trim()
     if (!resolution) {
       toast.error('Nothing to save yet — no answer on this conversation.')
       return
@@ -593,7 +594,7 @@ export function ConversationDetailPage() {
           </div>
         </div>
 
-        {norm === 'answered' && !confirmClose && (
+        {canResolve && !confirmClose && (
           <button
             onClick={doResolve}
             disabled={resolving}
