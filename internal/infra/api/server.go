@@ -544,8 +544,8 @@ func (s *Server) Ask(
 }
 
 // GetConversation fetches a conversation and all its messages (park-and-resume).
-// Visibility is enforced in the query handler: only the asker, the assigned
-// responder, or an org admin may read it.
+// Visibility is enforced in the query handler: open threads are participant-
+// scoped, while resolved history is readable by authorized project members.
 func (s *Server) GetConversation(
 	ctx context.Context,
 	req *connect.Request[orakov1.GetConversationRequest],

@@ -638,7 +638,7 @@ func (s *Store) MemberNamesByIDs(ctx context.Context, ids []uuid.UUID) (map[uuid
 
 	out := make(map[uuid.UUID]string, len(rows))
 	for _, r := range rows {
-		out[r.ID] = pgconv.StringFromText(r.DisplayName)
+		out[r.ID] = r.DisplayName
 	}
 
 	return out, nil

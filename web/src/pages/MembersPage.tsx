@@ -541,11 +541,11 @@ export function MembersPage() {
               {showAdminHdr && <GroupHeader label="Admin" cols={COLS} />}
               {showTeamHdr && <GroupHeader label="Team" cols={COLS} />}
               <div
-                role="link"
-                tabIndex={0}
-                onClick={() => navigate(`/members/${m.memberId}`)}
-                onKeyDown={e => { if (e.key === 'Enter') navigate(`/members/${m.memberId}`) }}
-                style={{ display: 'grid', gridTemplateColumns: COLS, gap: 16, padding: '15px 24px', borderTop: `1px solid ${T.borderSubtle}`, alignItems: 'center', cursor: 'pointer' }}
+                role={isOrgAdmin ? 'link' : undefined}
+                tabIndex={isOrgAdmin ? 0 : undefined}
+                onClick={isOrgAdmin ? () => navigate(`/members/${m.memberId}`) : undefined}
+                onKeyDown={isOrgAdmin ? e => { if (e.key === 'Enter') navigate(`/members/${m.memberId}`) } : undefined}
+                style={{ display: 'grid', gridTemplateColumns: COLS, gap: 16, padding: '15px 24px', borderTop: `1px solid ${T.borderSubtle}`, alignItems: 'center', cursor: isOrgAdmin ? 'pointer' : 'default' }}
               >
                 {/* person */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>

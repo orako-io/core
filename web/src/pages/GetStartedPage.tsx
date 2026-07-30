@@ -186,13 +186,13 @@ export function GetStartedPage() {
         </StepCard>
 
         <StepCard n={2} title="Try your first ask">
-          <p style={stepLead}>Paste this into your agent — it searches your team&rsquo;s history, then asks the right specialist if it&rsquo;s not there.</p>
+          <p style={stepLead}>Start with the highlighted prompt. It searches team history first, then asks a teammate only when needed.</p>
           <PromptBlock
             topic="how Orako works"
             text="Use Orako: search our knowledge for {TOPIC}. If it's not there, ask the right specialist and wait for the answer."
           />
           <div style={{ marginTop: 16 }}>
-            <div style={orTry}>OR TRY</div>
+            <div style={orTry}>OTHER EXAMPLES</div>
             <VariantRow text="How do I set up Discord for Orako?" />
             <VariantRow text="How does a teammate join my Orako org, and what can they do?" />
           </div>
@@ -321,7 +321,7 @@ function Terminal({ command }: { command: string }) {
   )
 }
 
-function CopyButton({ text, dark = false }: { text: string; dark?: boolean }) {
+function CopyButton({ text, dark = false, primary = false }: { text: string; dark?: boolean; primary?: boolean }) {
   const [copied, setCopied] = useState(false)
   function copy() {
     navigator.clipboard?.writeText(text).then(
@@ -344,14 +344,14 @@ function CopyButton({ text, dark = false }: { text: string; dark?: boolean }) {
     fontWeight: 600,
     fontFamily: 'inherit',
     cursor: 'pointer',
-    border: dark ? '1px solid #333A48' : `1px solid ${T.borderStrong}`,
-    background: dark ? '#242A36' : T.surface,
-    color: copied ? (dark ? '#6EE7A6' : T.successInk) : dark ? '#C7CCD6' : T.body,
+    border: dark ? '1px solid #333A48' : primary ? `1px solid ${T.accent}` : `1px solid ${T.borderStrong}`,
+    background: dark ? '#242A36' : primary ? T.accent : T.surface,
+    color: copied ? (dark ? '#6EE7A6' : primary ? '#fff' : T.successInk) : dark ? '#C7CCD6' : primary ? '#fff' : T.body,
   }
   return (
     <button onClick={copy} style={base} aria-label="Copy">
-      <Icon name={copied ? 'check' : 'copy'} size={13} color={copied ? (dark ? '#6EE7A6' : T.success) : dark ? '#C7CCD6' : T.subtle} strokeWidth={2.2} />
-      {copied ? 'Copied ✓' : 'Copy'}
+      <Icon name={copied ? 'check' : 'copy'} size={13} color={copied ? (dark ? '#6EE7A6' : primary ? '#fff' : T.success) : dark ? '#C7CCD6' : primary ? '#fff' : T.subtle} strokeWidth={2.2} />
+      {copied ? 'Copied ✓' : primary ? 'Copy this prompt' : 'Copy'}
     </button>
   )
 }
@@ -362,13 +362,16 @@ function PromptBlock({ topic, text }: { topic: string; text: string }) {
   const [before, after] = text.split('{TOPIC}')
   const full = text.replace('{TOPIC}', topic)
   return (
-    <div style={{ background: '#F7F8FA', borderLeft: `3px solid ${T.accent}`, borderRadius: 10, padding: '13px 15px', display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-      <div style={{ flex: 1, fontFamily: T.mono, fontSize: 12.5, color: T.body, lineHeight: 1.6 }}>
-        {before}
-        <span style={{ color: T.accent, fontWeight: 600 }}>{topic}</span>
-        {after}
+    <div style={{ background: T.accentSofter, border: `1.5px solid ${T.accentBorder}`, borderRadius: 12, padding: '14px 15px', display: 'flex', alignItems: 'center', gap: 14 }}>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.07em', color: T.accent, marginBottom: 6 }}>COPY THIS FIRST</div>
+        <div style={{ fontFamily: T.mono, fontSize: 12.5, color: T.text, lineHeight: 1.6 }}>
+          {before}
+          <span style={{ color: T.accent, fontWeight: 700 }}>{topic}</span>
+          {after}
+        </div>
       </div>
-      <CopyButton text={full} />
+      <CopyButton text={full} primary />
     </div>
   )
 }

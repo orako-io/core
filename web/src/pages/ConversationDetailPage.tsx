@@ -168,6 +168,9 @@ export function ConversationDetailPage() {
 
   const messages = detail.messages ?? []
   const messageGroups = groupConsecutiveMessages(messages)
+  const participantMap = Object.fromEntries(
+    (detail.participants ?? []).map(participant => [participant.memberId, participant]),
+  )
   // The asker (whose agent posted the question). An agent-authored message is
   // shown under this person's name — "Jordan · Claude Code" — not a bare "Agent".
   const askerName = detail.participants?.find(p => p.role === 'asker')?.displayName?.trim() || ''
@@ -292,6 +295,7 @@ export function ConversationDetailPage() {
           {messageGroups.map(group => {
             const m = group.messages[0]
             const author = specMap[m.authorMemberId]
+            const participant = participantMap[m.authorMemberId]
             // Claim/release routing notes render as centered dim lines, not bubbles.
             if (m.role === 4) {
               return (
@@ -304,20 +308,21 @@ export function ConversationDetailPage() {
                 </div>
               )
             }
-            const isAgent = !author
+            const isAgent = m.source === 'agent'
             // Authoritative agent marker from the persisted message source +
             // client. An agent-authored message shows a client badge ("· Claude
             // Code"); if the client is undeclared it falls back to "(via agent)".
             const viaAgent = m.source === 'agent'
             const agent = viaAgent ? agentIdentity(m.agentClient) : null
-            const baseName = isAgent
-              ? askerName || 'Agent'
-              : author.displayName?.trim() || responderName(m.authorMemberId, specMap)
-            const name = viaAgent && !agent && !isAgent ? `${baseName} (via agent)` : baseName
+            const baseName =
+              participant?.displayName?.trim() ||
+              author?.displayName?.trim() ||
+              (isAgent ? askerName || 'Agent' : responderName(m.authorMemberId, specMap))
+            const name = viaAgent && !agent ? `${baseName} (via agent)` : baseName
             const av = avatarColor(m.authorMemberId || name)
             const meta = isAgent
               ? `${messages[0]?.messageId === m.messageId ? 'asked ' : ''}${relTime(m.at)}`
-              : `${author.domains?.[0] ? `${cap(author.domains[0])} · ` : ''}replied ${relTime(m.at)}`
+              : `${author?.domains?.[0] ? `${cap(author.domains[0])} · ` : ''}replied ${relTime(m.at)}`
             return (
               <div key={group.key} style={{ display: 'flex', gap: 12 }}>
                 {isAgent ? (

@@ -6,7 +6,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api, type McpConnection } from '../lib/client'
-import { useIdentity } from '../lib/identity'
 import { useToast } from '../lib/toast'
 import { Page } from '../components/Layout'
 import { Icon } from '../components/Icon'
@@ -369,7 +368,6 @@ export function ConnectAgentPage() {
 // (OnboardingPage) — one source of truth.
 export function ConnectAgent() {
   const toast = useToast()
-  const { projects, selectedProjectId } = useIdentity()
 
   const [lane, setLane] = useState<'terminal' | 'noterminal'>('terminal')
   const [clientT, setClientT] = useState('claude-code')
@@ -385,10 +383,6 @@ export function ConnectAgent() {
   const clientGui = LANE_B[clientB] ?? LANE_B['claude-desktop']
   const clientLabel = isTerminal ? clientA.label : clientGui.label
   const guidanceFormat = isTerminal ? (GUIDANCE_FORMAT_BY_CLIENT[clientT] ?? 'agents') : 'mcp'
-  const selectedProject = projects.find(project => project.id === selectedProjectId)
-  const projectPin = selectedProject
-    ? `When using Orako, default to project "${selectedProject.name}" (project_id: "${selectedProject.id}") unless I explicitly name another project.`
-    : ''
 
   async function copy(text: string) {
     try {
@@ -449,9 +443,8 @@ export function ConnectAgent() {
           <div style={{ padding: '16px 20px', background: T.surfaceAlt, borderBottom: `1px solid ${T.borderSubtle}`, display: 'flex', gap: 11, alignItems: 'flex-start' }}>
             <Icon name="zap" size={18} color={T.accent} strokeWidth={1.9} style={{ flex: 'none', marginTop: 1 }} />
             <p style={{ fontSize: 13.5, lineHeight: 1.55, color: '#3A414D', margin: 0 }}>
-              <strong style={{ color: T.text }}>One registration.</strong> Point {clientLabel} at the remote MCP
-              endpoint, then authorize once inside the agent — nothing to copy-paste, no CLI to install. The agent
-              gets Orako's tools immediately; the next step makes the recommended workflow explicit.
+              Register Orako&rsquo;s MCP URL, then approve access in {clientLabel}. The tools are available
+              immediately after authorization.
             </p>
           </div>
 
@@ -687,21 +680,6 @@ export function ConnectAgent() {
             </div>
           )}
 
-          {projectPin && (
-            <div style={{ marginTop: 20, paddingTop: 18, borderTop: `1px solid ${T.borderSubtle}` }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>Optional: pin this project</div>
-              <p style={{ fontSize: 12.5, lineHeight: 1.55, color: T.muted, margin: '5px 0 10px' }}>
-                The first project selected during authorization is already the default. For a multi-project agent,
-                add this line to CLAUDE.md, AGENTS.md, or its persistent instructions.
-              </p>
-              <div style={{ ...darkBlock, display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-                <code style={{ ...codeStyle, fontSize: 12.5, flex: 1, whiteSpace: 'pre-wrap', lineHeight: 1.55 }}>
-                  {projectPin}
-                </code>
-                <CopyIconBtn onCopy={() => void copy(projectPin)} />
-              </div>
-            </div>
-          )}
         </div>
       </div>
 

@@ -5,6 +5,7 @@ package discord
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -276,7 +277,7 @@ func (g *Gateway) handleMessageCreate(_ *discordgo.Session, m *discordgo.Message
 	if _, err := g.followUp.Handle(ctx, command.FollowUpCommand{
 		ConversationID: providerMsg.ConversationID,
 		AuthorMemberID: member.ID,
-		Message:        m.Content,
+		Message:        g.resolveMentions(ctx, m.Content, m.Mentions),
 		AttachmentIDs:  attachmentIDs,
 	}); err != nil {
 		g.logger.ErrorContext(ctx, "discord gateway: FollowUp dispatch failed",
@@ -309,13 +310,32 @@ func (g *Gateway) handleThreadMessage(ctx context.Context, m *discordgo.MessageC
 	if _, err := g.followUp.Handle(ctx, command.FollowUpCommand{
 		ConversationID: surface.ConversationID,
 		AuthorMemberID: member.ID,
-		Message:        m.Content,
+		Message:        g.resolveMentions(ctx, m.Content, m.Mentions),
 		OriginSurface:  surface.Origin(),
 		AttachmentIDs:  attachmentIDs,
 	}); err != nil {
 		g.logger.ErrorContext(ctx, "discord gateway: thread FollowUp dispatch failed",
 			slog.String("conversation_id", surface.ConversationID.String()), slog.Any("error", err))
 	}
+}
+
+func (g *Gateway) resolveMentions(ctx context.Context, body string, mentions []*discordgo.User) string {
+	for _, user := range mentions {
+		if user == nil || user.ID == "" {
+			continue
+		}
+
+		member, err := g.members.ByDiscordUserID(ctx, user.ID)
+		if err != nil || member.DisplayName == "" {
+			continue
+		}
+
+		replacement := member.DisplayName + " (<@" + user.ID + ">)"
+		body = strings.ReplaceAll(body, "<@"+user.ID+">", replacement)
+		body = strings.ReplaceAll(body, "<@!"+user.ID+">", replacement)
+	}
+
+	return body
 }
 
 // ingestAttachments turns a Discord message's attachments into stored

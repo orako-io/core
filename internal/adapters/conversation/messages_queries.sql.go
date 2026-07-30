@@ -55,14 +55,21 @@ func (q *Queries) addMessage(ctx context.Context, arg addMessageParams) (Message
 }
 
 const memberNamesByIDs = `-- name: memberNamesByIDs :many
-SELECT id, display_name
+SELECT
+    id,
+    COALESCE(
+        NULLIF(BTRIM(display_name), ''),
+        NULLIF(BTRIM(CONCAT_WS(' ', first_name, last_name)), ''),
+        NULLIF(BTRIM(email), ''),
+        LEFT(id::text, 8)
+    )::text AS display_name
 FROM members
 WHERE id = ANY($1::uuid[])
 `
 
 type memberNamesByIDsRow struct {
-	ID          uuid.UUID   `json:"id"`
-	DisplayName pgtype.Text `json:"display_name"`
+	ID          uuid.UUID `json:"id"`
+	DisplayName string    `json:"display_name"`
 }
 
 func (q *Queries) memberNamesByIDs(ctx context.Context, dollar_1 []uuid.UUID) ([]memberNamesByIDsRow, error) {

@@ -12,6 +12,13 @@ WHERE conversation_id = $1
 ORDER BY created_at ASC;
 
 -- name: memberNamesByIDs :many
-SELECT id, display_name
+SELECT
+    id,
+    COALESCE(
+        NULLIF(BTRIM(display_name), ''),
+        NULLIF(BTRIM(CONCAT_WS(' ', first_name, last_name)), ''),
+        NULLIF(BTRIM(email), ''),
+        LEFT(id::text, 8)
+    )::text AS display_name
 FROM members
 WHERE id = ANY($1::uuid[]);

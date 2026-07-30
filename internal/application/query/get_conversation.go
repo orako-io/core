@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/orako-io/core/internal/application/domain/model"
 	"github.com/orako-io/core/internal/pkg/errs"
 )
 
@@ -77,9 +78,9 @@ func MustNewGetConversationHandler(convReader ConversationReader, candidates can
 }
 
 // Handle fetches the conversation and all its messages, mapping them to DTOs.
-// Returns errs.NotFoundError when the conversation does not exist, and
-// errs.ForbiddenError when the caller is neither the asker, the assigned
-// responder, nor an org admin.
+// Open conversations stay participant-scoped. Resolved conversations are
+// project knowledge and may be read by any caller whose token includes the
+// project, matching search_history's project-wide reuse contract.
 func (h GetConversationHandler) Handle(ctx context.Context, q GetConversationQuery) (ConversationView, error) {
 	conv, err := h.convReader.ReadConversation(ctx, q.ConversationID)
 	if err != nil {
@@ -87,18 +88,24 @@ func (h GetConversationHandler) Handle(ctx context.Context, q GetConversationQue
 	}
 
 	// Visibility: owner (asker) or the assigned responder, with an org-admin
-	// bypass. This is the first authorization check on this read path. A nil
-	// caller never matches (a nil member_id must not grant access).
+	// bypass. Explicitly-added participants may also read the thread. A nil caller
+	// never matches (a nil member_id must not grant access).
 	// An unclaimed pool conversation is additionally visible to its active
 	// candidates — they must read the thread before deciding to answer.
+	// Once resolved, the thread is reusable project history: any caller whose
+	// token includes the project may read it, exactly as search_history directs.
 	// The admin bypass is scoped to the caller's own projects: an admin of a
 	// different tenant, who is not a member of this conversation's project, gets
 	// no bypass (H1 — cross-tenant read).
 	adminForProject := q.IsOrgAdmin && slices.Contains(q.CallerProjectIDs, conv.ProjectID)
-	if !visibleTo(conv, q.CallerMemberID, adminForProject) {
-		if !h.candidateMayView(ctx, conv, q.CallerMemberID) {
-			return ConversationView{}, errs.ForbiddenError{Action: "view conversation"}
-		}
+
+	resolvedForProject := conv.Status == model.ConversationStatusResolved &&
+		slices.Contains(q.CallerProjectIDs, conv.ProjectID)
+	if !visibleTo(conv, q.CallerMemberID, adminForProject) &&
+		!resolvedForProject &&
+		!h.addedParticipantMayView(ctx, conv.ID, q.CallerMemberID) &&
+		!h.candidateMayView(ctx, conv, q.CallerMemberID) {
+		return ConversationView{}, errs.ForbiddenError{Action: "view conversation"}
 	}
 
 	views, err := h.convReader.ReadMessages(ctx, q.ConversationID)
@@ -137,6 +144,26 @@ func (h GetConversationHandler) Handle(ctx context.Context, q GetConversationQue
 		UpdatedAt:         conv.UpdatedAt,
 		Participants:      participants[conv.ID],
 	}, nil
+}
+
+// addedParticipantMayView admits a member explicitly attached through
+// add_participant. Errors deny access.
+func (h GetConversationHandler) addedParticipantMayView(
+	ctx context.Context,
+	conversationID, caller uuid.UUID,
+) bool {
+	if caller == uuid.Nil {
+		return false
+	}
+
+	byConversation, err := h.participants.ParticipantsByConversations(ctx, []uuid.UUID{conversationID})
+	if err != nil {
+		return false
+	}
+
+	return slices.ContainsFunc(byConversation[conversationID], func(participant model.ConversationParticipant) bool {
+		return participant.MemberID == caller
+	})
 }
 
 // candidateMayView admits an active candidate while the pool conversation is

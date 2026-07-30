@@ -6,6 +6,8 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+
+	"github.com/orako-io/core/internal/application/domain/model"
 )
 
 // ListExpertsQuery is the input for listing experts in a project.
@@ -92,6 +94,11 @@ func (h ListExpertsHandler) Handle(ctx context.Context, q ListExpertsQuery) ([]E
 			continue
 		}
 
+		mention := ""
+		if member.DeliveryChannel == model.DeliveryChannelDiscord && member.DiscordUserID != "" {
+			mention = "<@" + member.DiscordUserID + ">"
+		}
+
 		experts = append(experts, Expert{
 			MemberID:        m.MemberID,
 			DisplayName:     member.DisplayName,
@@ -101,6 +108,7 @@ func (h ListExpertsHandler) Handle(ctx context.Context, q ListExpertsQuery) ([]E
 			Domains:         m.Domains,
 			Online:          online[m.MemberID],
 			DeliveryChannel: member.DeliveryChannel,
+			Mention:         mention,
 		})
 	}
 
